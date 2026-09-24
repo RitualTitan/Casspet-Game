@@ -9,7 +9,7 @@ const config = {
         arcade: {
             // Atualiza o movimento a cada quadro, inclusive em telas acima de 60 Hz.
             fixedStep: false,
-            gravity: { y: 1000 },
+            gravity: { y: 300 },
             debug: false
         }
     },
@@ -30,17 +30,6 @@ const enquadramentoCenario = {
     abertura: 0.28,
     jogo: 0.40,
     duracao: 900
-};
-// Ritmo de saltos curtos e continuos, com folga para corrigir a direcao.
-const ritmoJogo = {
-    impulso: 600,
-    velocidadeHorizontal: 280,
-    intervaloMinimo: 105,
-    intervaloMaximo: 140,
-    distanciaHorizontalMinima: 100,
-    distanciaHorizontalMaxima: 180,
-    alturaCamera: 0.45,
-    suavizacaoCamera: 12
 };
 const game = new Phaser.Game(config);
 
@@ -70,23 +59,6 @@ function create(data = {}) {
     this.contador = 0;
     this.totalMoedas = 0;
     this.tempoMoedas = 0;
-    this.arraste = null;
-    const iniciarArraste = (ponteiro) => {
-        if (!this.iniciado || this.morreu) return;
-        const ponto = this.cameras.main.getWorldPoint(ponteiro.x, ponteiro.y);
-        this.arraste = { id: ponteiro.id, inicioX: ponto.x, ativo: false };
-    };
-    const encerrarArraste = (ponteiro) => {
-        if (this.arraste && this.arraste.id === ponteiro.id) this.arraste = null;
-    };
-    this.input.on('pointerdown', iniciarArraste);
-    this.input.on('pointerup', encerrarArraste);
-    this.input.on('pointerupoutside', encerrarArraste);
-    this.events.once('shutdown', () => {
-        this.input.off('pointerdown', iniciarArraste);
-        this.input.off('pointerup', encerrarArraste);
-        this.input.off('pointerupoutside', encerrarArraste);
-    });
     // Frame limitado ao desenho: o PNG original tem grandes margens transparentes.
     const texturaMoeda = this.textures.get('moeda');
     if (!texturaMoeda.has('recorte')) {
@@ -94,7 +66,6 @@ function create(data = {}) {
     }
     this.moedas = this.physics.add.staticGroup();
     this.velocidadeJogo = 1;
-    this.alvoCameraY = 0;
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
     criarFundoCenario(this);
     // Aproveita somente a faixa de grama da base antiga, sem trocar a arvore.
@@ -136,7 +107,7 @@ function create(data = {}) {
 
     this.plataformas = this.physics.add.staticGroup();
     criarPlataforma(this, 180, 580, 360, true);
-    this.ultimaPlataformaX = this.caixa.x;
+    this.ultimaPlataformaX = 200;
     this.ultimaPlataformaY = 580;
     this.cameras.main.setScroll(0, 0);
     gerarPlataformas(this);
@@ -160,7 +131,7 @@ function create(data = {}) {
     const escalaInicio = config.width / 941;
     const fundoInicio = this.add.rectangle(180, 320, 360, 640, 0x233c24);
     const arteInicio = this.add.image(180, 320, 'introducao').setScale(escalaInicio);
-    const dicaInicio = this.add.text(180, 586, 'Arraste o dedo para guiar o gato\nou use as setas do teclado.', {
+    const dicaInicio = this.add.text(180, 586, 'Segure nos lados para mover o gato\nou use as setas do teclado.', {
         resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#ffe1a6',
         align: 'center', lineSpacing: 5, backgroundColor: '#233c24',
         padding: { x: 8, y: 6 }
@@ -200,7 +171,7 @@ function create(data = {}) {
     };
     this.avisoInicio = null;
     botaoConfiguracoes.on('pointerup', () => mostrarAvisoInicio(
-        'CONTROLES\n\nArraste o dedo para alinhar o gato.\nNo teclado, use as setas.\n\nOs saltos são automáticos.'));
+        'CONTROLES\n\nSegure na metade esquerda ou direita da tela para mover o gato.\nNo teclado, use as setas.\n\nOs saltos são automáticos.'));
     botaoSair.on('pointerup', () => mostrarAvisoInicio(
         'Para sair do jogo, feche esta aba do navegador.'));
     this.physics.pause();
@@ -361,15 +332,12 @@ function gerarPlataformas(cena) {
     while (cena.ultimaPlataformaY > cena.cameras.main.scrollY - 200) {
         const largura = Phaser.Math.Between(70, 115);
         const margem = Math.ceil(largura / 2) + 12;
-        // O salto sobe 180 px; deixa ao menos 40 px de folga entre plataformas.
-        cena.ultimaPlataformaY -= Phaser.Math.Between(
-            ritmoJogo.intervaloMinimo, ritmoJogo.intervaloMaximo);
+        // O pulo sobe cerca de 267 px; deixa uma folga no maior intervalo.
+        cena.ultimaPlataformaY -= Phaser.Math.Between(190, 235);
         // Evita sequencias empilhadas: centros separados por pelo menos 100 px.
         const posicoes = [];
         for (let x = margem; x <= config.width - margem; x++) {
-            const distancia = Math.abs(x - cena.ultimaPlataformaX);
-            if (distancia >= ritmoJogo.distanciaHorizontalMinima &&
-                distancia <= ritmoJogo.distanciaHorizontalMaxima) posicoes.push(x);
+            if (Math.abs(x - cena.ultimaPlataformaX) >= 100) posicoes.push(x);
         }
         cena.ultimaPlataformaX = posicoes[Phaser.Math.Between(0, posicoes.length - 1)];
         criarPlataforma(cena, cena.ultimaPlataformaX, cena.ultimaPlataformaY, largura);
@@ -473,16 +441,16 @@ function pular(caixa,plataforma) {
             });
         }
     }
-    // Progressao suave, limitada para preservar o tempo de reacao.
-    const velocidade = Math.min(1.6, 1 + Math.floor(caixa.scene.contador / 20) * 0.1);
+    // Acelera 25% da velocidade inicial a cada 20 troncos alcancados.
+    const velocidade = 1 + Math.floor(caixa.scene.contador / 20) * 0.25;
     caixa.scene.velocidadeJogo = velocidade;
     // Gravidade proporcional ao quadrado preserva a altura e o alcance do salto.
     caixa.scene.physics.world.gravity.y = config.physics.arcade.gravity.y * velocidade ** 2;
     // A pose de contato acompanha o ritmo do jogo.
     caixa.setTexture('quasePulando').setDisplaySize(78, 80);
-    caixa.poseContatoAte = caixa.scene.time.now + 70 / velocidade;
+    caixa.poseContatoAte = caixa.scene.time.now + 120 / velocidade;
     // Garante o impulso mesmo quando a plataforma quebra.
-    caixa.body.setVelocityY(-ritmoJogo.impulso * velocidade);
+    caixa.body.setVelocityY(-400 * velocidade);
     if (plataforma.fragil) { 
         plataforma.destroy();
     }
@@ -513,35 +481,20 @@ function update(time, delta) {
         }
     }
 
-    const velocidadeMaxima = ritmoJogo.velocidadeHorizontal * this.velocidadeJogo;
-    let velocidadeX = 0;
+    let direcao = 0;
     if (this.cursors.left.isDown) {
-        velocidadeX = -velocidadeMaxima;
+        direcao = -1;
     } else if (this.cursors.right.isDown) {
-        velocidadeX = velocidadeMaxima;
-    } else if (this.input.activePointer.isDown && this.arraste &&
-        this.input.activePointer.id === this.arraste.id) {
-        // Converte o toque para o mundo, incluindo o zoom e a escala do canvas.
-        const ponteiro = this.input.activePointer;
-        const ponto = this.cameras.main.getWorldPoint(ponteiro.x, ponteiro.y);
-        const deslocamento = ponto.x - this.arraste.inicioX;
-        // Ignora toques parados e pequenas tremidas antes de iniciar o arraste.
-        if (Math.abs(deslocamento) >= 6) this.arraste.ativo = true;
-        const alvoX = Phaser.Math.Clamp(ponto.x, 20, 340);
-        const distancia = alvoX - this.caixa.x;
-        // Alinha imediatamente ao dedo, preservando o movimento vertical do salto.
-        if (this.arraste.ativo) {
-            const velocidadeY = this.caixa.body.velocity.y;
-            this.caixa.body.reset(alvoX, this.caixa.y);
-            this.caixa.body.setVelocityY(velocidadeY);
-            if (distancia !== 0) this.caixa.setFlipX(distancia < 0);
-        }
+        direcao = 1;
+    } else if (this.input.activePointer.isDown) {
+        // Segure na metade esquerda ou direita da tela para andar.
+        direcao = this.input.activePointer.x < this.scale.gameSize.width / 2 ? -1 : 1;
     }
 
-    this.caixa.body.setVelocityX(velocidadeX);
-    if (velocidadeX !== 0) {
+    this.caixa.body.setVelocityX(direcao * 200 * this.velocidadeJogo);
+    if (direcao !== 0) {
         // As imagens originais olham para a direita; mantem a pose ao parar.
-        this.caixa.setFlipX(velocidadeX < 0);
+        this.caixa.setFlipX(direcao < 0);
     }
 
     // Limita as laterais sem colocar um teto no mundo.
@@ -553,12 +506,9 @@ function update(time, delta) {
     }
 
     const camera = this.cameras.main;
-    // Acompanha a maior altura com suavidade, sem descer entre os saltos.
-    this.alvoCameraY = Math.min(this.alvoCameraY,
-        this.caixa.y - config.height * ritmoJogo.alturaCamera);
-    const respostaCamera = 1 - Math.exp(
-        -ritmoJogo.suavizacaoCamera * this.velocidadeJogo * delta / 1000);
-    camera.scrollY += (this.alvoCameraY - camera.scrollY) * respostaCamera;
+    // Deixa o gato subir ate perto do meio da tela antes de acompanhar.
+    // Mantem a altura alcancada quando ele cai.
+    camera.scrollY = Math.min(camera.scrollY, this.caixa.y - 300);
     gerarPlataformas(this);
     atualizarMoedas(this, delta);
     atualizarCenario(this, delta);
@@ -575,15 +525,11 @@ function temPlataformaAlcancavel(cena) {
             alvo.bottom < cena.cameras.main.scrollY) {
             return false;
         }
-        // No arraste, o gato pode se alinhar imediatamente com qualquer plataforma.
-        if (cena.arraste && cena.input.activePointer.isDown &&
-            cena.input.activePointer.id === cena.arraste.id &&
-            !cena.cursors.left.isDown && !cena.cursors.right.isDown) return true;
         // Tempo ate a altura do tronco, considerando a gravidade do jogo.
         const gravidade = cena.physics.world.gravity.y;
         const tempo = (Math.sqrt(corpo.velocity.y ** 2 +
             2 * gravidade * Math.max(0, distanciaY)) - corpo.velocity.y) / gravidade;
         const distanciaX = Math.max(alvo.left - corpo.right, corpo.left - alvo.right, 0);
-        return distanciaX <= ritmoJogo.velocidadeHorizontal * cena.velocidadeJogo * tempo + 2;
+        return distanciaX <= 200 * cena.velocidadeJogo * tempo + 2;
     });
 }
