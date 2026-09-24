@@ -47,6 +47,7 @@ function preload() {
     this.load.image('caindo', 'assets/caindo.png');
     this.load.image('moeda', 'assets/image 201.png');
     this.load.image('gramaBase', 'assets/base.png');
+    this.load.image('introducao', 'assets/Introducao.png');
 }
 
 function create(data = {}) {
@@ -143,29 +144,58 @@ function create(data = {}) {
     atualizarFundoContador(this);
     this.physics.add.overlap(this.caixa, this.moedas, coletarMoeda);
 
-    const sombra = this.add.rectangle(180, 320, 360, 640, 0x160d08, 0.30);
-    const titulo = this.add.text(180, 230, 'SALTO DO GATO', {
-        resolution: 4,
-        fontFamily: 'Arial', fontSize: '30px', fontStyle: 'bold', color: '#ffe1a6'
+    // Enquadra a placa central da arte horizontal sem deformar os botoes.
+    const escalaInicio = config.width / 760;
+    const fundoInicio = this.add.rectangle(180, 320, 360, 640, 0x233c24);
+    const arteInicio = this.add.image(180, 320, 'introducao').setScale(escalaInicio);
+    const dicaInicio = this.add.text(180, 586, 'Arraste o dedo para guiar o gato\nou use as setas do teclado.', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#ffe1a6',
+        align: 'center', lineSpacing: 5
     }).setOrigin(0.5);
-    const convite = this.add.text(180, 320, 'Toque para começar', {
-        resolution: 4,
-        fontFamily: 'Arial', fontSize: '25px', color: '#ffffff'
-    }).setOrigin(0.5);
-    const ajuda = this.add.text(180, 390,
-        'Arraste o dedo para guiar o gato\nou use as setas do teclado.\n\nOs primeiros 20 troncos são resistentes.', {
-            resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: '#f4ddc9',
-            align: 'center', lineSpacing: 7
-        }).setOrigin(0.5);
-    this.telaInicio = this.add.container(0, 0, [sombra, titulo, convite, ajuda])
+    const zonaMenu = (y) => this.add.zone(180, 320 + (y - 941 / 2) * escalaInicio,
+        470 * escalaInicio, 106 * escalaInicio).setInteractive({ useHandCursor: true });
+    const botaoInicio = zonaMenu(543);
+    const botaoConfiguracoes = zonaMenu(662);
+    const botaoSair = zonaMenu(780);
+    this.telaInicio = this.add.container(0, 0,
+        [fundoInicio, arteInicio, dicaInicio, botaoInicio, botaoConfiguracoes, botaoSair])
         .setScrollFactor(0).setDepth(20);
+    const mostrarAvisoInicio = (texto) => {
+        if (this.avisoInicio) return;
+        const fundo = this.add.rectangle(180, 320, 336, 230, 0x233c24)
+            .setStrokeStyle(2, 0xffe1a6);
+        const mensagem = this.add.text(180, 290, texto, {
+            resolution: 4, fontFamily: 'Arial', fontSize: '16px', color: '#ffe1a6',
+            align: 'center', wordWrap: { width: 300 }, lineSpacing: 6
+        }).setOrigin(0.5);
+        const fechar = this.add.text(180, 390, 'VOLTAR', {
+            resolution: 4, fontFamily: 'Arial', fontSize: '18px', color: '#ffffff',
+            backgroundColor: '#634128', padding: { x: 24, y: 12 }
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        botaoInicio.disableInteractive();
+        botaoConfiguracoes.disableInteractive();
+        botaoSair.disableInteractive();
+        this.avisoInicio = this.add.container(0, 0, [fundo, mensagem, fechar]);
+        this.telaInicio.add(this.avisoInicio);
+        fechar.on('pointerup', () => {
+            this.avisoInicio.destroy();
+            this.avisoInicio = null;
+            botaoInicio.setInteractive({ useHandCursor: true });
+            botaoConfiguracoes.setInteractive({ useHandCursor: true });
+            botaoSair.setInteractive({ useHandCursor: true });
+        });
+    };
+    this.avisoInicio = null;
+    botaoConfiguracoes.on('pointerup', () => mostrarAvisoInicio(
+        'CONTROLES\n\nArraste o dedo para alinhar o gato.\nNo teclado, use as setas.\n\nOs saltos são automáticos.'));
+    botaoSair.on('pointerup', () => mostrarAvisoInicio(
+        'Para sair do jogo, feche esta aba do navegador.'));
     this.physics.pause();
 
     const comecar = () => {
-        if (this.iniciado || this.iniciando) return;
+        if (this.iniciado || this.iniciando || this.avisoInicio) return;
         this.iniciando = true;
         this.telaInicio.destroy();
-        this.input.off('pointerup', comecar);
         this.input.keyboard.off('keydown-SPACE', comecar);
         this.input.keyboard.off('keydown-ENTER', comecar);
         // Primeiro apresenta a aproximacao; depois libera o primeiro salto.
@@ -176,8 +206,8 @@ function create(data = {}) {
                 this.physics.resume();
             });
     };
-    // Comeca ao soltar o toque, sem usar o mesmo toque para mover o gato.
-    this.input.on('pointerup', comecar);
+    // Somente a placa INICIAR comeca a partida por toque.
+    botaoInicio.on('pointerup', comecar);
     this.input.keyboard.on('keydown-SPACE', comecar);
     this.input.keyboard.on('keydown-ENTER', comecar);
     if (data.reiniciar) comecar();
