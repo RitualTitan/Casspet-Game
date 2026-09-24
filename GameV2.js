@@ -58,6 +58,23 @@ function create(data = {}) {
     this.contador = 0;
     this.totalMoedas = 0;
     this.tempoMoedas = 0;
+    this.arraste = null;
+    const iniciarArraste = (ponteiro) => {
+        if (!this.iniciado || this.morreu) return;
+        const ponto = this.cameras.main.getWorldPoint(ponteiro.x, ponteiro.y);
+        this.arraste = { id: ponteiro.id, inicioX: ponto.x, gatoX: this.caixa.x, ativo: false };
+    };
+    const encerrarArraste = (ponteiro) => {
+        if (this.arraste && this.arraste.id === ponteiro.id) this.arraste = null;
+    };
+    this.input.on('pointerdown', iniciarArraste);
+    this.input.on('pointerup', encerrarArraste);
+    this.input.on('pointerupoutside', encerrarArraste);
+    this.events.once('shutdown', () => {
+        this.input.off('pointerdown', iniciarArraste);
+        this.input.off('pointerup', encerrarArraste);
+        this.input.off('pointerupoutside', encerrarArraste);
+    });
     // Frame limitado ao desenho: o PNG original tem grandes margens transparentes.
     const texturaMoeda = this.textures.get('moeda');
     if (!texturaMoeda.has('recorte')) {
@@ -456,15 +473,19 @@ function update(time, delta) {
         velocidadeX = -velocidadeMaxima;
     } else if (this.cursors.right.isDown) {
         velocidadeX = velocidadeMaxima;
-    } else if (this.input.activePointer.isDown) {
+    } else if (this.input.activePointer.isDown && this.arraste &&
+        this.input.activePointer.id === this.arraste.id) {
         // Converte o toque para o mundo, incluindo o zoom e a escala do canvas.
         const ponteiro = this.input.activePointer;
         const ponto = this.cameras.main.getWorldPoint(ponteiro.x, ponteiro.y);
-        const alvoX = Phaser.Math.Clamp(ponto.x, 20, 340);
+        const deslocamento = ponto.x - this.arraste.inicioX;
+        // Ignora toques parados e pequenas tremidas antes de iniciar o arraste.
+        if (Math.abs(deslocamento) >= 6) this.arraste.ativo = true;
+        const alvoX = Phaser.Math.Clamp(this.arraste.gatoX + deslocamento, 20, 340);
         const distancia = alvoX - this.caixa.x;
         // Segue o dedo sem teletransportar ou ultrapassar a velocidade dos saltos.
         const resposta = Math.min(18, 1000 / Math.max(delta, 1));
-        if (Math.abs(distancia) > 0.5) {
+        if (this.arraste.ativo && Math.abs(distancia) > 0.5) {
             velocidadeX = Phaser.Math.Clamp(distancia * resposta,
                 -velocidadeMaxima, velocidadeMaxima);
         }
