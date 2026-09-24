@@ -45,7 +45,7 @@ function preload() {
     this.load.image('pulando', 'assets/pulando.png');
     this.load.image('quasePulando', 'assets/3quasepualndo.png');
     this.load.image('caindo', 'assets/caindo.png');
-    this.load.image('moeda', 'assets/image 201.png');
+    this.load.image('moeda', 'assets/moeda-jogo.png');
     this.load.image('gramaBase', 'assets/base.png');
     this.load.image('introducao', 'assets/inicio2.png');
 }
@@ -59,11 +59,6 @@ function create(data = {}) {
     this.contador = 0;
     this.totalMoedas = 0;
     this.tempoMoedas = 0;
-    // Frame limitado ao desenho: o PNG original tem grandes margens transparentes.
-    const texturaMoeda = this.textures.get('moeda');
-    if (!texturaMoeda.has('recorte')) {
-        texturaMoeda.add('recorte', 0, 1406, 2476, 1616, 985);
-    }
     this.moedas = this.physics.add.staticGroup();
     this.velocidadeJogo = 1;
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
@@ -263,8 +258,8 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
 }
 
 function criarMoeda(cena, plataforma) {
-    const moeda = cena.add.image(plataforma.x, plataforma.y - 60, 'moeda', 'recorte')
-        .setScale(38 / 1616).setDepth(2);
+    const moeda = cena.add.image(plataforma.x, plataforma.y - 60, 'moeda')
+        .setScale(38 / 808).setDepth(2);
     moeda.plataforma = plataforma;
     moeda.yBase = moeda.y;
     moeda.fase = Phaser.Math.FloatBetween(0, Math.PI * 2);
@@ -304,7 +299,7 @@ function coletarMoeda(caixa, moeda) {
     cena.totalMoedas += 1;
     cena.textoMoedas.setText('Granulados: ' + cena.totalMoedas);
     atualizarFundoContador(cena);
-    const efeito = cena.add.image(moeda.x, moeda.y, 'moeda', 'recorte')
+    const efeito = cena.add.image(moeda.x, moeda.y, 'moeda')
         .setScale(moeda.scaleX).setAngle(moeda.angle).setDepth(3);
     moeda.destroy();
     cena.tweens.add({
@@ -421,12 +416,22 @@ function atualizarCenario(cena, delta) {
     fundo.base.y = config.height + fundo.deslocamento;
     const emenda = fundo.base.y - 16384 * escalaBase;
     fundo.base.setVisible(emenda < config.height);
+    // Containers nao precisam desenhar as camadas que estao fora da tela.
+    cena.fundoCenario.list.forEach(function (trecho) {
+        const topo = cena.fundoCenario.y + trecho.y;
+        trecho.setVisible(topo < config.height && topo + trecho.displayHeight > 0);
+    });
+    fundo.base.list.forEach(function (trecho) {
+        const topo = fundo.base.y + trecho.y * escalaBase;
+        trecho.setVisible(topo < config.height && topo + trecho.height * escalaBase > 0);
+    });
     // Recicla somente os trechos fora da tela, sem criar imagens a cada quicada.
     const primeiro = Math.max(0, Math.floor((emenda - config.height) / fundo.passoTrecho));
     fundo.continuacoes.forEach(function (trecho, indice) {
         trecho.setScale(escalaContinuacao);
         trecho.x = config.width / 2;
         trecho.y = emenda + fundo.sobreposicao - (primeiro + indice) * fundo.passoTrecho;
+        trecho.setVisible(trecho.y > 0 && trecho.y - fundo.alturaTrecho < config.height);
     });
 }
 
@@ -512,7 +517,15 @@ function update(time, delta) {
     gerarPlataformas(this);
     atualizarMoedas(this, delta);
     atualizarCenario(this, delta);
-    // Plataformas visiveis continuam disponiveis enquanto houver chance de pousar.
+    limparPlataformasForaDaTela(this);
+}
+
+function limparPlataformasForaDaTela(cena) {
+    // A camera so sobe: plataformas abaixo dessa margem nao podem voltar ao jogo.
+    const limite = cena.cameras.main.scrollY + config.height + 160;
+    cena.plataformas.getChildren().slice().forEach(function (plataforma) {
+        if (plataforma.body.top > limite) plataforma.destroy();
+    });
 }
 
 function temPlataformaAlcancavel(cena) {
