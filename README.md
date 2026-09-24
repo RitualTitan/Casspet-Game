@@ -21,7 +21,7 @@ O navegador precisa de acesso a internet para carregar o Phaser 3.90 pelo CDN in
 ## Controles
 
 - Toque, Espaco ou Enter para iniciar.
-- Setas esquerda/direita ou arraste o dedo para deslocar o gato na horizontal. Um toque parado nao move o gato; o arraste parte da posicao atual dele.
+- Setas esquerda/direita ou arraste o dedo para guiar o gato na horizontal. Um toque parado nao move o gato; ao iniciar o arraste, ele segue a posicao do dedo na tela.
 - Apos morrer, toque, Espaco ou Enter para reiniciar.
 
 ## Arquivos

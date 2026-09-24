@@ -62,7 +62,7 @@ function create(data = {}) {
     const iniciarArraste = (ponteiro) => {
         if (!this.iniciado || this.morreu) return;
         const ponto = this.cameras.main.getWorldPoint(ponteiro.x, ponteiro.y);
-        this.arraste = { id: ponteiro.id, inicioX: ponto.x, gatoX: this.caixa.x, ativo: false };
+        this.arraste = { id: ponteiro.id, inicioX: ponto.x, ativo: false };
     };
     const encerrarArraste = (ponteiro) => {
         if (this.arraste && this.arraste.id === ponteiro.id) this.arraste = null;
@@ -481,7 +481,7 @@ function update(time, delta) {
         const deslocamento = ponto.x - this.arraste.inicioX;
         // Ignora toques parados e pequenas tremidas antes de iniciar o arraste.
         if (Math.abs(deslocamento) >= 6) this.arraste.ativo = true;
-        const alvoX = Phaser.Math.Clamp(this.arraste.gatoX + deslocamento, 20, 340);
+        const alvoX = Phaser.Math.Clamp(ponto.x, 20, 340);
         const distancia = alvoX - this.caixa.x;
         // Segue o dedo sem teletransportar ou ultrapassar a velocidade dos saltos.
         const resposta = Math.min(18, 1000 / Math.max(delta, 1));
