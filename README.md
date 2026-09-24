@@ -30,7 +30,7 @@ O navegador precisa de acesso a internet para carregar o Phaser 3.90 pelo CDN in
 - `GameV2.js`: configuracao, cenas, movimento, plataformas, moedas e cenario.
 - `assets/`: imagens originais e texturas usadas no jogo.
 
-O ceu usa `CREU-camada-0.png` ate `CREU-camada-7.png`; a arvore usa `Arve-camada-0.png` ate `Arve-camada-7.png`. Essas partes derivam de `CREU.png` e `Arve.png`, evitando carregar texturas de 32768 px de altura no jogo. Mantenha as partes versionadas.
+O ceu usa `CREU-camada-0.png` ate `CREU-camada-7.png`; a arvore usa `Group3141-camada-0.png` ate `Group3141-camada-7.png`. Essas partes derivam de `CREU.png` e `Group 3141.png`, evitando carregar texturas de 32768 px de altura no jogo. Mantenha as partes versionadas.
 
 ## Validacao
 

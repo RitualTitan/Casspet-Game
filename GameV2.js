@@ -34,10 +34,10 @@ const enquadramentoCenario = {
 const game = new Phaser.Game(config);
 
 function preload() {
-    // CREU e Arve divididos em partes de ate 2048 px para o celular.
+    // CREU e Group 3141 divididos em partes de ate 2048 px para o celular.
     for (let i = 0; i < 8; i++) {
         this.load.image('ceu_' + i, 'assets/CREU-camada-' + i + '.png');
-        this.load.image('arvore_' + i, 'assets/Arve-camada-' + i + '.png');
+        this.load.image('arvore_' + i, 'assets/Group3141-camada-' + i + '.png');
     }
     this.load.svg('troncoLiso', 'assets/tronco liso.svg');
     this.load.svg('troncoRachado', 'assets/tronco rachado.svg');
@@ -46,6 +46,7 @@ function preload() {
     this.load.image('quasePulando', 'assets/3quasepualndo.png');
     this.load.image('caindo', 'assets/caindo.png');
     this.load.image('moeda', 'assets/image 201.png');
+    this.load.image('gramaBase', 'assets/base.png');
 }
 
 function create(data = {}) {
@@ -66,10 +67,19 @@ function create(data = {}) {
     this.velocidadeJogo = 1;
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
     criarFundoCenario(this);
+    // Aproveita somente a faixa de grama da base antiga, sem trocar a arvore.
+    const texturaGrama = this.textures.get('gramaBase');
+    if (!texturaGrama.has('grama')) {
+        texturaGrama.add('grama', 0, 400, 850, 600, 130);
+    }
+    // Alinhada ao chao inicial; sai da tela quando a camera acompanha o gato.
+    this.add.image(config.width / 2, 568, 'gramaBase', 'grama')
+        .setOrigin(0.5, 0).setDisplaySize(config.width, 78).setDepth(-1);
     const arvoreFundo = this.add.container(config.width / 2, config.height)
         .setScrollFactor(0);
     for (let i = 0; i < 8; i++) {
-        arvoreFundo.add(this.add.image(0, (i - 8) * 2048, 'arvore_' + i)
+        arvoreFundo.add(this.add.image(0, (i - 8) * 2048,
+            'arvore_' + i)
             .setOrigin(0.5, 0));
     }
     this.cenario = {
@@ -77,13 +87,14 @@ function create(data = {}) {
         larguraTronco: enquadramentoCenario.abertura,
         alturaInicialGato: 532, paralaxe: 0.12, continuacoes: []
     };
-    const imagemContinuacao = this.textures.get('arvore_0').getSourceImage();
-    prepararTransicaoCenario(this, imagemContinuacao);
+    const imagem = this.textures.get('arvore_0').getSourceImage();
+    prepararTransicaoCenario(this, imagem, 'troncoContinuoTransicao');
     const escalaMinima = config.width * Math.min(
-        enquadramentoCenario.abertura, enquadramentoCenario.jogo) / 350;
+        enquadramentoCenario.abertura, enquadramentoCenario.jogo) / 730;
     const quantidade = Math.ceil(config.height / (1952 * escalaMinima)) + 2;
     for (let i = 0; i < quantidade; i++) {
-        this.cenario.continuacoes.push(this.add.image(config.width / 2, 0, 'troncoContinuoTransicao')
+        this.cenario.continuacoes.push(this.add.image(config.width / 2, 0,
+            'troncoContinuoTransicao')
             .setOrigin(0.5, 1).setScrollFactor(0));
     }
     // O topo do chao fica em 572; metade da altura do gato e 40.
@@ -291,10 +302,13 @@ function gerarPlataformas(cena) {
         const largura = Phaser.Math.Between(70, 115);
         const margem = Math.ceil(largura / 2) + 12;
         // O pulo sobe cerca de 267 px; deixa uma folga no maior intervalo.
-        cena.ultimaPlataformaY -= Phaser.Math.Between(155, 225);
-        cena.ultimaPlataformaX = Phaser.Math.Between(
-            margem, config.width - margem
-        );
+        cena.ultimaPlataformaY -= Phaser.Math.Between(190, 235);
+        // Evita sequencias empilhadas: centros separados por pelo menos 100 px.
+        const posicoes = [];
+        for (let x = margem; x <= config.width - margem; x++) {
+            if (Math.abs(x - cena.ultimaPlataformaX) >= 100) posicoes.push(x);
+        }
+        cena.ultimaPlataformaX = posicoes[Phaser.Math.Between(0, posicoes.length - 1)];
         criarPlataforma(cena, cena.ultimaPlataformaX, cena.ultimaPlataformaY, largura);
     }
 }
@@ -314,12 +328,12 @@ function criarFundoCenario(cena) {
     cena.fundoCenario.y = config.height - altura;
 }
 
-function prepararTransicaoCenario(cena, imagem) {
-    if (cena.textures.exists('troncoContinuoTransicao')) return;
-    // Reutiliza o topo da Arve quando a subida ultrapassar a imagem inteira.
+function prepararTransicaoCenario(cena, imagem, chave) {
+    if (cena.textures.exists(chave)) return;
+    // Reutiliza o topo da textura escolhida acima da imagem inteira.
     const largura = imagem.width;
     const altura = 1984;
-    const textura = cena.textures.createCanvas('troncoContinuoTransicao', largura, altura);
+    const textura = cena.textures.createCanvas(chave, largura, altura);
     const contexto = textura.getContext();
     contexto.drawImage(imagem, 0, 64, largura, altura, 0, 0, largura, altura);
     const inicio = altura - 32;
@@ -355,7 +369,7 @@ function enquadrarCenario(cena, larguraTronco, duracao = 900, aoConcluir = () =>
 function atualizarCenario(cena, delta) {
     const fundo = cena.cenario;
     const larguraMadeira = config.width * fundo.larguraTronco;
-    const escalaBase = larguraMadeira / 350;
+    const escalaBase = larguraMadeira / 730;
     const escalaContinuacao = escalaBase;
     fundo.base.setScale(escalaBase);
     fundo.base.x = config.width / 2;
