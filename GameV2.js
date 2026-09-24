@@ -136,7 +136,7 @@ function create(data = {}) {
         fontFamily: 'Arial', fontSize: '25px', color: '#ffffff'
     }).setOrigin(0.5);
     const ajuda = this.add.text(180, 390,
-        'Toque nos lados da tela para mover\nou use as setas do teclado.\n\nOs primeiros 20 troncos são resistentes.', {
+        'Arraste o dedo para guiar o gato\nou use as setas do teclado.\n\nOs primeiros 20 troncos são resistentes.', {
             resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: '#f4ddc9',
             align: 'center', lineSpacing: 7
         }).setOrigin(0.5);
@@ -450,20 +450,30 @@ function update(time, delta) {
         }
     }
 
-    let direcao = 0;
+    const velocidadeMaxima = 200 * this.velocidadeJogo;
+    let velocidadeX = 0;
     if (this.cursors.left.isDown) {
-        direcao = -1;
+        velocidadeX = -velocidadeMaxima;
     } else if (this.cursors.right.isDown) {
-        direcao = 1;
+        velocidadeX = velocidadeMaxima;
     } else if (this.input.activePointer.isDown) {
-        // Segure na metade esquerda ou direita da tela para andar.
-        direcao = this.input.activePointer.x < this.scale.gameSize.width / 2 ? -1 : 1;
+        // Converte o toque para o mundo, incluindo o zoom e a escala do canvas.
+        const ponteiro = this.input.activePointer;
+        const ponto = this.cameras.main.getWorldPoint(ponteiro.x, ponteiro.y);
+        const alvoX = Phaser.Math.Clamp(ponto.x, 20, 340);
+        const distancia = alvoX - this.caixa.x;
+        // Segue o dedo sem teletransportar ou ultrapassar a velocidade dos saltos.
+        const resposta = Math.min(18, 1000 / Math.max(delta, 1));
+        if (Math.abs(distancia) > 0.5) {
+            velocidadeX = Phaser.Math.Clamp(distancia * resposta,
+                -velocidadeMaxima, velocidadeMaxima);
+        }
     }
 
-    this.caixa.body.setVelocityX(direcao * 200 * this.velocidadeJogo);
-    if (direcao !== 0) {
+    this.caixa.body.setVelocityX(velocidadeX);
+    if (velocidadeX !== 0) {
         // As imagens originais olham para a direita; mantem a pose ao parar.
-        this.caixa.setFlipX(direcao < 0);
+        this.caixa.setFlipX(velocidadeX < 0);
     }
 
     // Limita as laterais sem colocar um teto no mundo.
