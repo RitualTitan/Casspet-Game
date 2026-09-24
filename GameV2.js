@@ -58,7 +58,7 @@ function preload() {
     this.load.image('caindo', 'assets/caindo.png');
     this.load.image('moeda', 'assets/image 201.png');
     this.load.image('gramaBase', 'assets/base.png');
-    this.load.image('introducao', 'assets/Introducao.png');
+    this.load.image('introducao', 'assets/inicio2.png');
 }
 
 function create(data = {}) {
@@ -156,19 +156,20 @@ function create(data = {}) {
     atualizarFundoContador(this);
     this.physics.add.overlap(this.caixa, this.moedas, coletarMoeda);
 
-    // Enquadra a placa central da arte horizontal sem deformar os botoes.
-    const escalaInicio = config.width / 760;
+    // Arte vertical inteira, com as areas de toque alinhadas as novas placas.
+    const escalaInicio = config.width / 941;
     const fundoInicio = this.add.rectangle(180, 320, 360, 640, 0x233c24);
     const arteInicio = this.add.image(180, 320, 'introducao').setScale(escalaInicio);
     const dicaInicio = this.add.text(180, 586, 'Arraste o dedo para guiar o gato\nou use as setas do teclado.', {
         resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#ffe1a6',
-        align: 'center', lineSpacing: 5
+        align: 'center', lineSpacing: 5, backgroundColor: '#233c24',
+        padding: { x: 8, y: 6 }
     }).setOrigin(0.5);
-    const zonaMenu = (y) => this.add.zone(180, 320 + (y - 941 / 2) * escalaInicio,
+    const zonaMenu = (y) => this.add.zone(180, 320 + (y - 1672 / 2) * escalaInicio,
         470 * escalaInicio, 106 * escalaInicio).setInteractive({ useHandCursor: true });
-    const botaoInicio = zonaMenu(543);
-    const botaoConfiguracoes = zonaMenu(662);
-    const botaoSair = zonaMenu(780);
+    const botaoInicio = zonaMenu(760);
+    const botaoConfiguracoes = zonaMenu(877);
+    const botaoSair = zonaMenu(990);
     this.telaInicio = this.add.container(0, 0,
         [fundoInicio, arteInicio, dicaInicio, botaoInicio, botaoConfiguracoes, botaoSair])
         .setScrollFactor(0).setDepth(20);
