@@ -483,11 +483,12 @@ function update(time, delta) {
         if (Math.abs(deslocamento) >= 6) this.arraste.ativo = true;
         const alvoX = Phaser.Math.Clamp(ponto.x, 20, 340);
         const distancia = alvoX - this.caixa.x;
-        // Segue o dedo sem teletransportar ou ultrapassar a velocidade dos saltos.
-        const resposta = Math.min(18, 1000 / Math.max(delta, 1));
-        if (this.arraste.ativo && Math.abs(distancia) > 0.5) {
-            velocidadeX = Phaser.Math.Clamp(distancia * resposta,
-                -velocidadeMaxima, velocidadeMaxima);
+        // Alinha imediatamente ao dedo, preservando o movimento vertical do salto.
+        if (this.arraste.ativo) {
+            const velocidadeY = this.caixa.body.velocity.y;
+            this.caixa.body.reset(alvoX, this.caixa.y);
+            this.caixa.body.setVelocityY(velocidadeY);
+            if (distancia !== 0) this.caixa.setFlipX(distancia < 0);
         }
     }
 
@@ -525,6 +526,10 @@ function temPlataformaAlcancavel(cena) {
             alvo.bottom < cena.cameras.main.scrollY) {
             return false;
         }
+        // No arraste, o gato pode se alinhar imediatamente com qualquer plataforma.
+        if (cena.arraste && cena.input.activePointer.isDown &&
+            cena.input.activePointer.id === cena.arraste.id &&
+            !cena.cursors.left.isDown && !cena.cursors.right.isDown) return true;
         // Tempo ate a altura do tronco, considerando a gravidade do jogo.
         const gravidade = cena.physics.world.gravity.y;
         const tempo = (Math.sqrt(corpo.velocity.y ** 2 +
