@@ -20,11 +20,13 @@ O navegador precisa de acesso a internet para carregar o Phaser 3.90 pelo CDN in
 
 ## Controles
 
-- Toque, Espaco ou Enter para iniciar.
+- Toque na placa INICIAR, Espaco ou Enter para iniciar.
 - Setas esquerda/direita ou arraste o dedo para guiar o gato na horizontal. Um toque parado nao move o gato; ao iniciar o arraste, ele fica alinhado imediatamente com o dedo, respeitando as bordas da tela e mantendo o salto vertical.
 - Apos morrer, toque, Espaco ou Enter para reiniciar.
 
 ## Arquivos
+
+O ritmo da partida pode ser ajustado em `ritmoJogo`, no `GameV2.js`: impulso, velocidade lateral, espacamento das plataformas e acompanhamento da camera. A configuracao atual usa saltos de 180 px, intervalos verticais de 105 a 140 px e camera suave que acompanha apenas a subida. A velocidade aumenta gradualmente ate 1,6 vez a inicial.
 
 - `index.html`: pagina, canvas e carregamento do Phaser.
 - `GameV2.js`: configuracao, cenas, movimento, plataformas, moedas e cenario.

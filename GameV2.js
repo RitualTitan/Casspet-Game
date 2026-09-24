@@ -9,7 +9,7 @@ const config = {
         arcade: {
             // Atualiza o movimento a cada quadro, inclusive em telas acima de 60 Hz.
             fixedStep: false,
-            gravity: { y: 300 },
+            gravity: { y: 1000 },
             debug: false
         }
     },
@@ -30,6 +30,17 @@ const enquadramentoCenario = {
     abertura: 0.28,
     jogo: 0.40,
     duracao: 900
+};
+// Ritmo de saltos curtos e continuos, com folga para corrigir a direcao.
+const ritmoJogo = {
+    impulso: 600,
+    velocidadeHorizontal: 280,
+    intervaloMinimo: 105,
+    intervaloMaximo: 140,
+    distanciaHorizontalMinima: 100,
+    distanciaHorizontalMaxima: 180,
+    alturaCamera: 0.45,
+    suavizacaoCamera: 12
 };
 const game = new Phaser.Game(config);
 
@@ -83,6 +94,7 @@ function create(data = {}) {
     }
     this.moedas = this.physics.add.staticGroup();
     this.velocidadeJogo = 1;
+    this.alvoCameraY = 0;
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
     criarFundoCenario(this);
     // Aproveita somente a faixa de grama da base antiga, sem trocar a arvore.
@@ -124,7 +136,7 @@ function create(data = {}) {
 
     this.plataformas = this.physics.add.staticGroup();
     criarPlataforma(this, 180, 580, 360, true);
-    this.ultimaPlataformaX = 200;
+    this.ultimaPlataformaX = this.caixa.x;
     this.ultimaPlataformaY = 580;
     this.cameras.main.setScroll(0, 0);
     gerarPlataformas(this);
@@ -348,12 +360,15 @@ function gerarPlataformas(cena) {
     while (cena.ultimaPlataformaY > cena.cameras.main.scrollY - 200) {
         const largura = Phaser.Math.Between(70, 115);
         const margem = Math.ceil(largura / 2) + 12;
-        // O pulo sobe cerca de 267 px; deixa uma folga no maior intervalo.
-        cena.ultimaPlataformaY -= Phaser.Math.Between(190, 235);
+        // O salto sobe 180 px; deixa ao menos 40 px de folga entre plataformas.
+        cena.ultimaPlataformaY -= Phaser.Math.Between(
+            ritmoJogo.intervaloMinimo, ritmoJogo.intervaloMaximo);
         // Evita sequencias empilhadas: centros separados por pelo menos 100 px.
         const posicoes = [];
         for (let x = margem; x <= config.width - margem; x++) {
-            if (Math.abs(x - cena.ultimaPlataformaX) >= 100) posicoes.push(x);
+            const distancia = Math.abs(x - cena.ultimaPlataformaX);
+            if (distancia >= ritmoJogo.distanciaHorizontalMinima &&
+                distancia <= ritmoJogo.distanciaHorizontalMaxima) posicoes.push(x);
         }
         cena.ultimaPlataformaX = posicoes[Phaser.Math.Between(0, posicoes.length - 1)];
         criarPlataforma(cena, cena.ultimaPlataformaX, cena.ultimaPlataformaY, largura);
@@ -457,16 +472,16 @@ function pular(caixa,plataforma) {
             });
         }
     }
-    // Acelera 25% da velocidade inicial a cada 20 troncos alcancados.
-    const velocidade = 1 + Math.floor(caixa.scene.contador / 20) * 0.25;
+    // Progressao suave, limitada para preservar o tempo de reacao.
+    const velocidade = Math.min(1.6, 1 + Math.floor(caixa.scene.contador / 20) * 0.1);
     caixa.scene.velocidadeJogo = velocidade;
     // Gravidade proporcional ao quadrado preserva a altura e o alcance do salto.
     caixa.scene.physics.world.gravity.y = config.physics.arcade.gravity.y * velocidade ** 2;
     // A pose de contato acompanha o ritmo do jogo.
     caixa.setTexture('quasePulando').setDisplaySize(78, 80);
-    caixa.poseContatoAte = caixa.scene.time.now + 120 / velocidade;
+    caixa.poseContatoAte = caixa.scene.time.now + 70 / velocidade;
     // Garante o impulso mesmo quando a plataforma quebra.
-    caixa.body.setVelocityY(-400 * velocidade);
+    caixa.body.setVelocityY(-ritmoJogo.impulso * velocidade);
     if (plataforma.fragil) { 
         plataforma.destroy();
     }
@@ -497,7 +512,7 @@ function update(time, delta) {
         }
     }
 
-    const velocidadeMaxima = 200 * this.velocidadeJogo;
+    const velocidadeMaxima = ritmoJogo.velocidadeHorizontal * this.velocidadeJogo;
     let velocidadeX = 0;
     if (this.cursors.left.isDown) {
         velocidadeX = -velocidadeMaxima;
@@ -537,9 +552,12 @@ function update(time, delta) {
     }
 
     const camera = this.cameras.main;
-    // Deixa o gato subir ate perto do meio da tela antes de acompanhar.
-    // Mantem a altura alcancada quando ele cai.
-    camera.scrollY = Math.min(camera.scrollY, this.caixa.y - 300);
+    // Acompanha a maior altura com suavidade, sem descer entre os saltos.
+    this.alvoCameraY = Math.min(this.alvoCameraY,
+        this.caixa.y - config.height * ritmoJogo.alturaCamera);
+    const respostaCamera = 1 - Math.exp(
+        -ritmoJogo.suavizacaoCamera * this.velocidadeJogo * delta / 1000);
+    camera.scrollY += (this.alvoCameraY - camera.scrollY) * respostaCamera;
     gerarPlataformas(this);
     atualizarMoedas(this, delta);
     atualizarCenario(this, delta);
@@ -565,6 +583,6 @@ function temPlataformaAlcancavel(cena) {
         const tempo = (Math.sqrt(corpo.velocity.y ** 2 +
             2 * gravidade * Math.max(0, distanciaY)) - corpo.velocity.y) / gravidade;
         const distanciaX = Math.max(alvo.left - corpo.right, corpo.left - alvo.right, 0);
-        return distanciaX <= 200 * cena.velocidadeJogo * tempo + 2;
+        return distanciaX <= ritmoJogo.velocidadeHorizontal * cena.velocidadeJogo * tempo + 2;
     });
 }
