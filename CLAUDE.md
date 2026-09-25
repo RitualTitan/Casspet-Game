@@ -48,11 +48,15 @@ ser revista em CONFIGURACOES > HISTORIA.
 - Guaxinim: `assets/guaxinim.png` (recorte transparente de `guaxinim-original.webp`); o pacote que ele
   carrega e a textura `fx_saco`, desenhada no codigo.
 - Sons e musica sao sintetizados com Web Audio (objetos `som`, `musica` e `trilha`), sem arquivos de audio.
+- **Previa do ceu** (`ceu.html`, que liga `window.previaCeu`): carrega `assets/cenario-sem-ceu/` (faixas geradas
+  com a opcao "Sem ceu" da ferramenta) e desenha o ceu no codigo, mudando com a altura (`fasesCeu`: dia, fim de
+  tarde, por do sol, noite e espaco), com sol, estrelas, lua, Terra e planeta, e um botao SUBIR so na previa.
+  O jogo oficial (`index.html`) nao muda. Ainda aguardando aprovacao do usuario para ligar no jogo oficial.
 
 ## Ideias guardadas pelo usuario (ainda nao feitas)
 
 - Passarinho inimigo a partir de certa altura.
-- Ceu mudando com a altura (tarde, por do sol, noite).
+- Ceu mudando com a altura (tarde, por do sol, noite, espaco) - em previa em `ceu.html`.
 - Um final no topo da arvore (ninho do guaxinim + quadrinho final) - sugerido, ainda nao confirmado.
 
 ## Observacoes

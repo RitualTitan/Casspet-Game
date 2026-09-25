@@ -50,6 +50,33 @@ const texturaCenario = {
     alturaFaixa: 2044,
     margem: 2
 };
+// Previa do ceu mudando com a altura, aberta por ceu.html. No jogo oficial fica desligada.
+const previaCeu = window.previaCeu === true;
+// Cada tronco fica em media 212 acima do anterior (190 a 235, em gerarPlataformas).
+const alturaPorTronco = 212;
+// Fases do ceu pela altura alcancada, em troncos. O ceu fica parado em cada fase e
+// muda nos ultimos `transicaoCeu` troncos antes da seguinte. topo, meio e base formam
+// o degrade; luz tinge o cenario; sol e a altura do sol na tela (acima de 1 ja se pos);
+// estrelas, lua e espaco vao de 0 a 1. As fases ficam fora dos multiplos de 20 para o
+// aviso nao cobrir o de "MAIS RAPIDO!". A noite chega antes da copa do pinheiro do
+// cenario, que ocupa a tela de ~110 a ~185 troncos.
+const transicaoCeu = 14;
+const fasesCeu = [
+    { troncos: 0, topo: 0x3f8bd8, meio: 0x5ca8e7, base: 0x9fd4f5, luz: 0xffffff,
+        sol: 0.14, corSol: 0xfff6c8, estrelas: 0, lua: 0, espaco: 0 },
+    { troncos: 30, aviso: ['FIM DE TARDE', 'o sol começa a descer'], cor: '#ffd98a',
+        topo: 0x4a86cf, meio: 0x8fbfe6, base: 0xffd58f, luz: 0xfff0d6,
+        sol: 0.4, corSol: 0xffe08a, estrelas: 0, lua: 0, espaco: 0 },
+    { troncos: 65, aviso: ['PÔR DO SOL', 'o céu ficou alaranjado'], cor: '#ffa060',
+        topo: 0x2e2a6c, meio: 0xb4507a, base: 0xff9448, luz: 0xffc6a2,
+        sol: 0.85, corSol: 0xff7a3a, estrelas: 0.15, lua: 0, espaco: 0 },
+    { troncos: 95, aviso: ['NOITE', 'as estrelas apareceram'], cor: '#b9c6ff',
+        topo: 0x040a24, meio: 0x0c1a48, base: 0x243268, luz: 0x7a86b8,
+        sol: 1.3, corSol: 0xff7a3a, estrelas: 0.85, lua: 1, espaco: 0 },
+    { troncos: 150, aviso: ['ESPAÇO!', 'a árvore chegou ao espaço'], cor: '#ffffff',
+        topo: 0x000000, meio: 0x02030a, base: 0x080c20, luz: 0x8a90b4,
+        sol: 1.3, corSol: 0xff7a3a, estrelas: 1, lua: 1, espaco: 1 }
+];
 // A partir de 160 troncos o jogo para de acelerar (3x a velocidade inicial).
 const velocidadeMaxima = 3;
 // Superficie da grama do chao, onde ficam os pes do gato no comeco.
@@ -408,9 +435,11 @@ function preload() {
     // Faixas do cenario ja desenhadas a partir de assets/Cenario Jogo 1.svg por
     // ferramentas/gerar-cenario.html, com as emendas do tronco suavizadas.
     // Carregar o SVG de 12 MB direto era lento demais no celular.
+    // Na previa do ceu as faixas vem sem o degrade do ceu, que e desenhado no jogo.
+    const pastaCenario = previaCeu ? 'assets/cenario-sem-ceu' : 'assets/cenario';
     const quantidadeFaixas = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
     for (let i = 0; i < quantidadeFaixas; i++) {
-        this.load.image('cenario_' + i, `assets/cenario/cenario-${i}.webp`);
+        this.load.image('cenario_' + i, `${pastaCenario}/cenario-${i}.webp`);
     }
     this.load.svg('troncoLiso', 'assets/tronco liso.svg');
     this.load.svg('troncoRachado', 'assets/tronco rachado.svg');
@@ -452,6 +481,8 @@ function create(data = {}) {
     this.moedas = this.physics.add.staticGroup();
     this.velocidadeJogo = 1;
     this.sombraGato = null;
+    this.ceu = null;
+    this.textoPrevia = null;
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
     const cenarioFundo = this.add.container(config.width / 2, config.height)
         .setScrollFactor(0).setDepth(-2);
@@ -473,6 +504,7 @@ function create(data = {}) {
         larguraTronco: enquadramentoCenario.abertura,
         alturaInicialGato: alturaChao - 40, paralaxe: 0.12
     };
+    criarCeu(this);
     criarFolhas(this, -1, 1500);
     // Metade da altura do gato e 40: ele comeca com os pes na grama.
     // A caixa e so o corpo fisico; o gato visivel acompanha ela com
@@ -796,6 +828,7 @@ function criarHud(cena) {
     const botaoSom = criarBotaoHud(cena, 336, desenharIconeSom, () => som.alternarMudo());
     cena.hud = { granulados, fundo, icone, texto, troncos, fundoTroncos, textoTroncos, botaoSom };
     atualizarHud(cena);
+    if (previaCeu) criarControlesPrevia(cena);
     [granulados, troncos, botaoPausa.grafico, botaoSom.grafico].forEach((item, i) => {
         item.setAlpha(0);
         item.y -= 20;
@@ -1659,6 +1692,191 @@ function atualizarCenario(cena, delta) {
     });
 }
 
+// Mistura duas cores 0xRRGGBB; t vai de 0 (a) a 1 (b).
+function misturarCor(a, b, t) {
+    const canal = (deslocamento) => {
+        const inicio = (a >> deslocamento) & 255;
+        const fim = (b >> deslocamento) & 255;
+        return Math.round(inicio + (fim - inicio) * t) << deslocamento;
+    };
+    return canal(16) | canal(8) | canal(0);
+}
+
+// Estrelas, lua, Terra e planeta, desenhados em 2x para ficarem nitidos com o zoom.
+function criarTexturasCeu(cena) {
+    if (cena.textures.exists('ceu_estrelas')) return;
+    const g = cena.make.graphics({ add: false });
+    for (let i = 0; i < 160; i++) {
+        g.fillStyle(0xffffff, Phaser.Math.FloatBetween(0.3, 1)).fillCircle(
+            Phaser.Math.Between(0, 1023), Phaser.Math.Between(0, 1023), Math.random() < 0.85 ? 1.6 : 2.8);
+    }
+    g.generateTexture('ceu_estrelas', 1024, 1024);
+    // Lua com brilho em volta e crateras.
+    g.clear().fillStyle(0xfff6d8, 0.08).fillCircle(64, 64, 62).fillStyle(0xfff6d8, 0.12).fillCircle(64, 64, 52);
+    g.fillStyle(0xf4efd6).fillCircle(64, 64, 40);
+    g.fillStyle(0xd9d1b0);
+    [[50, 52, 9], [78, 70, 7], [60, 82, 5], [80, 48, 4]].forEach(([x, y, r]) => g.fillCircle(x, y, r));
+    g.generateTexture('ceu_lua', 128, 128);
+    // Terra: oceano, continentes, nuvens e a atmosfera azul clara.
+    g.clear().fillStyle(0x8fd0ff, 0.12).fillCircle(100, 100, 98).fillStyle(0x8fd0ff, 0.18).fillCircle(100, 100, 90);
+    g.fillStyle(0x2f78d6).fillCircle(100, 100, 82);
+    g.fillStyle(0x4caf50);
+    [[74, 70, 40, 30], [66, 96, 22, 36], [128, 112, 36, 44], [120, 64, 18, 14], [96, 146, 30, 12]]
+        .forEach(([x, y, w, h]) => g.fillEllipse(x, y, w, h));
+    g.fillStyle(0xffffff, 0.8);
+    [[96, 48, 46, 8], [136, 86, 30, 7], [58, 124, 34, 7], [110, 160, 40, 6]]
+        .forEach(([x, y, w, h]) => g.fillEllipse(x, y, w, h));
+    g.lineStyle(4, 0xbfe6ff, 0.7).strokeCircle(100, 100, 83);
+    g.generateTexture('ceu_terra', 200, 200);
+    // Planeta com anel: anel inteiro, planeta por cima e a metade da frente do anel.
+    const anel = (inicio, fim) => {
+        const pontos = [];
+        for (let a = inicio; a <= fim + 0.001; a += Math.PI / 24) {
+            pontos.push({ x: 80 + Math.cos(a) * 66, y: 50 + Math.sin(a) * 16 });
+        }
+        return pontos;
+    };
+    g.clear().lineStyle(6, 0xf3dca8, 0.85).strokePoints(anel(Math.PI, Math.PI * 2));
+    g.fillStyle(0xe8b86a).fillCircle(80, 50, 34);
+    g.fillStyle(0xd49a4a).fillEllipse(80, 40, 64, 8).fillEllipse(80, 60, 62, 7);
+    g.lineStyle(6, 0xf3dca8, 0.95).strokePoints(anel(0, Math.PI));
+    g.generateTexture('ceu_planeta', 160, 100);
+    g.destroy();
+}
+
+// Ceu da previa, atras do cenario sem ceu: degrade, sol, estrelas, lua e planetas.
+function criarCeu(cena) {
+    if (!previaCeu) return;
+    criarTexturasCeu(cena);
+    const fixo = (objeto, profundidade) => objeto.setScrollFactor(0).setDepth(profundidade);
+    const brilhos = [];
+    for (let i = 0; i < 14; i++) {
+        brilhos.push({
+            imagem: fixo(cena.add.image(0, 0, 'fx_estrela').setScale(Phaser.Math.FloatBetween(0.35, 0.7)), -2.9),
+            x: Phaser.Math.Between(12, config.width - 12),
+            y: Phaser.Math.Between(0, config.height),
+            fase: Math.random() * Math.PI * 2,
+            velocidade: Phaser.Math.FloatBetween(1.5, 4)
+        });
+    }
+    cena.ceu = {
+        degrade: fixo(cena.add.graphics(), -3),
+        estrelas: fixo(cena.add.tileSprite(0, 0, config.width, config.height, 'ceu_estrelas')
+            .setOrigin(0, 0).setTileScale(0.5), -2.9),
+        brilhos,
+        halo: fixo(cena.add.circle(0, 0, 1, 0xffffff), -2.85),
+        sol: fixo(cena.add.circle(0, 0, 1, 0xffffff), -2.85),
+        lua: fixo(cena.add.image(68, config.height * 0.2, 'ceu_lua').setScale(0.5), -2.85),
+        terra: fixo(cena.add.image(290, config.height * 0.68, 'ceu_terra').setScale(0.5), -2.85),
+        planeta: fixo(cena.add.image(296, config.height * 0.24, 'ceu_planeta').setScale(0.5), -2.85),
+        chave: '', luz: -1, fase: 0, tempo: 0, proximaCadente: 0
+    };
+    atualizarCeu(cena, 0);
+}
+
+function atualizarCeu(cena, delta) {
+    const ceu = cena.ceu;
+    if (!ceu) return;
+    ceu.tempo += delta / 1000;
+    const troncos = Math.max(0, cena.alturaMax) / alturaPorTronco;
+    let indice = 0;
+    while (indice < fasesCeu.length - 1 && troncos >= fasesCeu[indice + 1].troncos) indice++;
+    const atual = fasesCeu[indice];
+    const proxima = fasesCeu[Math.min(indice + 1, fasesCeu.length - 1)];
+    const t = Phaser.Math.Clamp((troncos - (proxima.troncos - transicaoCeu)) / transicaoCeu, 0, 1);
+    const valor = (campo) => Phaser.Math.Linear(atual[campo], proxima[campo], t);
+    const cor = (campo) => misturarCor(atual[campo], proxima[campo], t);
+    if (indice > ceu.fase) {
+        ceu.fase = indice;
+        mostrarFaixa(cena, atual.aviso[0], atual.aviso[1], atual.cor);
+    }
+    if (cena.textoPrevia) cena.textoPrevia.setText(`Prévia do céu · ${Math.floor(troncos)} troncos de altura`);
+
+    // O degrade so e redesenhado quando as cores mudam.
+    const topo = cor('topo');
+    const meio = cor('meio');
+    const base = cor('base');
+    const chave = topo + ',' + meio + ',' + base;
+    if (chave !== ceu.chave) {
+        ceu.chave = chave;
+        const metade = config.height / 2;
+        ceu.degrade.clear()
+            .fillGradientStyle(topo, topo, meio, meio, 1).fillRect(0, 0, config.width, metade)
+            .fillGradientStyle(meio, meio, base, base, 1).fillRect(0, metade, config.width, config.height - metade);
+    }
+    const luz = cor('luz');
+    if (luz !== ceu.luz) {
+        ceu.luz = luz;
+        cena.cenario.base.list.forEach((trecho) => trecho.setTint(luz));
+    }
+
+    // O sol desce, cresce e avermelha ate sumir embaixo da tela.
+    const alturaSol = valor('sol');
+    const raio = 22 + Phaser.Math.Clamp((alturaSol - 0.14) / 0.71, 0, 1) * 14;
+    const ySol = config.height * alturaSol;
+    const corSol = cor('corSol');
+    const solVisivel = ySol - raio * 1.9 < config.height;
+    ceu.sol.setPosition(296, ySol).setRadius(raio).setFillStyle(corSol).setVisible(solVisivel);
+    ceu.halo.setPosition(296, ySol).setRadius(raio * 1.9).setFillStyle(corSol, 0.22).setVisible(solVisivel);
+
+    // As estrelas descem devagar enquanto o gato sobe e piscam.
+    const estrelas = valor('estrelas');
+    const deriva = troncos * alturaPorTronco * 0.03;
+    ceu.estrelas.setVisible(estrelas > 0).setAlpha(estrelas);
+    ceu.estrelas.tilePositionY = -deriva * 2;
+    ceu.brilhos.forEach((brilho) => {
+        const pisca = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(ceu.tempo * brilho.velocidade + brilho.fase));
+        brilho.imagem.setPosition(brilho.x, Phaser.Math.Wrap(brilho.y + deriva, -10, config.height + 10))
+            .setAlpha(estrelas * pisca).setVisible(estrelas > 0);
+    });
+    const lua = valor('lua');
+    ceu.lua.setAlpha(lua).setVisible(lua > 0);
+    const espaco = valor('espaco');
+    ceu.terra.setAlpha(espaco).setVisible(espaco > 0).setAngle(ceu.tempo * 3);
+    ceu.planeta.setAlpha(espaco).setVisible(espaco > 0);
+    if (estrelas > 0.5 && cena.iniciado && cena.time.now > ceu.proximaCadente) {
+        ceu.proximaCadente = cena.time.now + Phaser.Math.Between(2500, 6000);
+        criarEstrelaCadente(cena);
+    }
+}
+
+// Risco de luz que cruza o ceu na diagonal, com o rastro atras da ponta.
+function criarEstrelaCadente(cena) {
+    const x = Phaser.Math.Between(60, config.width - 60);
+    const y = Phaser.Math.Between(70, config.height * 0.4);
+    const lado = Math.random() < 0.5 ? -1 : 1;
+    const angulo = Phaser.Math.DegToRad(25);
+    const rastro = cena.add.rectangle(x, y, 64, 2, 0xffffff).setOrigin(lado > 0 ? 1 : 0, 0.5)
+        .setAngle(lado * 25).setScrollFactor(0).setDepth(-2.9).setAlpha(0);
+    cena.tweens.add({
+        targets: rastro, x: x + lado * Math.cos(angulo) * 150, y: y + Math.sin(angulo) * 150,
+        duration: 700, ease: 'Sine.easeIn'
+    });
+    cena.tweens.add({
+        targets: rastro, alpha: 0.9, duration: 150, hold: 350, yoyo: true,
+        onComplete: () => rastro.destroy()
+    });
+}
+
+// So na previa: botao para subir rapido e a altura atual, para ver todas as fases do ceu.
+function criarControlesPrevia(cena) {
+    const botao = cena.add.text(10, 50, '▲ SUBIR', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold',
+        color: '#382017', backgroundColor: '#ffd24a', padding: { x: 10, y: 6 }
+    }).setScrollFactor(0).setDepth(12).setInteractive({ useHandCursor: true });
+    botao.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
+        // Nao deixa o toque retomar a pausa.
+        evento.stopPropagation();
+        if (!cena.iniciado || cena.morreu || cena.pausado) return;
+        aplicarImpulsoDourado(cena.caixa, 1500);
+    });
+    cena.textoPrevia = cena.add.text(82, 62, '', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '11px', fontStyle: 'bold',
+        color: corTexto, stroke: '#1a0e08', strokeThickness: 3
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(12);
+    atualizarCeu(cena, 0);
+}
+
 // Achata ou estica o gato e volta ao normal com um balanco elastico.
 function deformarGato(cena, x, y, duracao) {
     const deformacao = cena.deformacao;
@@ -1850,6 +2068,7 @@ function update(time, delta) {
     gerarPlataformas(this);
     atualizarMoedas(this, delta);
     atualizarCenario(this, delta);
+    atualizarCeu(this, delta);
     limparPlataformasForaDaTela(this);
 }
 

@@ -22,6 +22,10 @@
     em <code>assets/cenario/</code>.
   </p>
   <p>Abra esta pagina pelo servidor local do jogo (por exemplo http://localhost:8000/ferramentas/gerar-cenario.html).</p>
+  <p>
+    <label><input type="checkbox" id="semCeu"> Sem ceu: tira o degrade do ceu e deixa o fundo transparente,
+    para o jogo desenhar o ceu mudando com a altura. Salve essas faixas em <code>assets/cenario-sem-ceu/</code>.</label>
+  </p>
   <button id="gerar">Gerar faixas</button>
   <p id="estado"></p>
   <div id="faixas"></div>
@@ -194,7 +198,7 @@
     }
 
     // Desenha cada faixa do SVG (com margem de filtragem) e devolve os WebP prontos.
-    async function gerarFaixas(aoAvancar = () => {}) {
+    async function gerarFaixas(aoAvancar = () => {}, semCeu = false) {
       const texto = await (await fetch('../assets/Cenario Jogo 1.svg')).text();
       const documento = new DOMParser().parseFromString(texto, 'image/svg+xml');
       const raiz = documento.documentElement;
@@ -203,6 +207,8 @@
       raiz.setAttribute('y', y);
       raiz.setAttribute('width', largura);
       raiz.setAttribute('height', altura);
+      // O ceu sao as faixas retangulares preenchidas com os degrades paint0 a paint10.
+      if (semCeu) documento.querySelectorAll('path[fill^="url(#paint"]').forEach((forma) => forma.remove());
       // As faixas de gradiente do ceu e os blocos do tronco (cor base e veios) se
       // encostam; um contorno da mesma cor fecha a fresta que o anti-aliasing deixa
       // entre eles. Nos veios o contorno e mais fino para nao engrossar o desenho.
@@ -250,8 +256,10 @@
       const lista = document.getElementById('faixas');
       lista.innerHTML = '';
       try {
-        const faixas = await gerarFaixas((texto) => { estado.textContent = texto; });
-        estado.textContent = 'Pronto! Clique em cada faixa para baixar e salve em assets/cenario/.';
+        const semCeu = document.getElementById('semCeu').checked;
+        const faixas = await gerarFaixas((texto) => { estado.textContent = texto; }, semCeu);
+        estado.textContent = 'Pronto! Clique em cada faixa para baixar e salve em assets/' +
+          (semCeu ? 'cenario-sem-ceu/.' : 'cenario/.');
         for (const faixa of faixas) {
           const url = URL.createObjectURL(faixa.blob);
           lista.insertAdjacentHTML('beforeend', `<figure><a href="${url}" download="${faixa.nome}">

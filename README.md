@@ -35,6 +35,7 @@ A tela se ajusta ao formato do celular: o mundo tem sempre 360 de largura e a al
 - `index.html`: pagina, canvas e carregamento do Phaser.
 - `GameV2.js`: configuracao, cenas, movimento, plataformas, moedas e cenario.
 - `assets/`: imagens originais e texturas usadas no jogo.
+- `ceu.html`: previa do ceu mudando com a altura (dia, fim de tarde, por do sol, noite e espaco), com um botao SUBIR para ver as fases rapido. Usa as faixas de `assets/cenario-sem-ceu/`.
 - `assets/cenario/`: faixas WebP do cenario, geradas a partir do SVG.
 - `ferramentas/gerar-cenario.html`: gera as faixas do cenario.
 
