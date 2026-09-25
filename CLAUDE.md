@@ -8,6 +8,11 @@ Todo o codigo esta em `GameV2.js`; codigo e comentarios em portugues, comentario
 
 - **Foco em celular.** As dicas na tela falam so de toque; o teclado funciona no PC, mas nao aparece nas dicas.
   Teste sempre em viewport de celular (ex.: 375 x 812).
+- **Controle pelo dedo.** O dedo e uma linha invisivel: com o toque comecando na metade de baixo da tela, o gato
+  anda ate ficar alinhado na vertical com o dedo e para ali. Nada de marcacao visivel e nada de "toque nos lados".
+- **Tela responsiva.** O mundo tem 360 de largura e a altura (`config.height`, de 640 a 860) acompanha o formato
+  do celular. Posicione a interface a partir de `config.height`, nunca com 640/320 fixos. O chao fica a 44 da
+  borda de baixo e a camera deixa `folgaAbaixoGato` abaixo do gato; a sobra das telas altas aparece acima dele.
 - **O guaxinim (vilao) nunca pode ser pego.** Ele foge sempre um tronco a frente do gato e precisa ficar
   visivel. Uma mecanica de "+5 ao pegar" ja foi feita e o usuario recusou.
 - Textos: a tela de derrota diz "Você perdeu". Na historia o item roubado e um **pacote** (nunca "saco")

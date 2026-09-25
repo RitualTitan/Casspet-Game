@@ -1,14 +1,17 @@
 
-// Limita o custo de preenchimento no celular, preservando o mundo de 360 x 640.
+// Limita o custo de preenchimento no celular, preservando o mundo de 360 de largura.
 const telaDeToque = window.matchMedia('(pointer: coarse)').matches;
 const escalaRenderizacao = telaDeToque ? 1.5 : 2;
+// A altura do mundo acompanha o formato da tela: 640 em 9:16 e ate 860 nos
+// celulares mais altos. Telas mais largas que 9:16 ganham faixas nas laterais.
+const alturaTela = medirAlturaTela();
 // "1 granulado", "2 granulados".
 const contar = (quantidade, palavra) => `${quantidade} ${palavra}${quantidade === 1 ? '' : 's'}`;
 const config = {
     type: Phaser.AUTO,
     parent: 'jogo',
     width: 360,
-    height: 640,
+    height: alturaTela,
     // Abaixo de 30 fps o jogo desacelera em vez de dar passos longos,
     // que deixariam o gato atravessar um tronco num engasgo do navegador.
     fps: { min: 30, smoothStep: true },
@@ -28,7 +31,7 @@ const config = {
     },
     scale: {
         width: 360 * escalaRenderizacao,
-        height: 640 * escalaRenderizacao,
+        height: alturaTela * escalaRenderizacao,
         mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH
     }
 };
@@ -51,11 +54,12 @@ const texturaCenario = {
 const velocidadeMaxima = 3;
 // Superficie da grama do chao, onde ficam os pes do gato no comeco.
 // Com essa altura a terra de assets/chao.webp cobre ate a borda de baixo da tela.
-const alturaChao = 596;
+const alturaChao = alturaTela - 44;
 // Posicao da superficie da grama dentro de assets/chao.webp (900 x 229 px).
 const superficieChao = 104 / 229;
-// Faixa do topo reservada ao placar e aos botoes; toques ali nao movem o gato.
-const alturaHud = 48;
+// A camera deixa sempre 340 de tela abaixo do gato, como em 9:16;
+// em telas mais altas o espaco extra aparece acima dele.
+const folgaAbaixoGato = 340;
 const chaveRecorde = 'granulando.recorde';
 const chaveMudo = 'granulando.mudo';
 const chaveHistoria = 'granulando.historiaVista';
@@ -77,6 +81,13 @@ const quadrosHistoria = [
         texto: 'Mas esse gatinho não desiste! Pule de tronco em tronco, recupere os granulados e alcance o guaxinim!' }
 ];
 const game = new Phaser.Game(config);
+
+function medirAlturaTela() {
+    const area = document.getElementById('jogo');
+    const largura = (area && area.clientWidth) || window.innerWidth;
+    const altura = (area && area.clientHeight) || window.innerHeight;
+    return Math.round(Phaser.Math.Clamp(360 * altura / largura, 640, 860));
+}
 
 // O armazenamento pode falhar em aba anonima; o jogo segue sem salvar.
 function lerArmazenado(chave, padrao) {
@@ -555,25 +566,27 @@ function create(data = {}) {
         this.game.events.off('hidden', aoOcultar);
     });
 
-    // Arte vertical inteira, com as areas de toque alinhadas as novas placas.
-    const escalaInicio = config.width / 941;
-    const fundoInicio = this.add.rectangle(180, 320, 360, 640, 0x233c24);
-    const arteInicio = this.add.image(180, 320, 'introducao').setScale(escalaInicio);
-    const dicaInicio = this.add.text(180, 586,
-        'Segure nos lados para mover o gato', {
+    // Arte vertical cobrindo a tela; em telas altas corta um pouco das arvores nas laterais.
+    // As areas de toque seguem as placas, em pixels da arte (941 x 1672).
+    const escalaInicio = Math.max(config.width / 941, config.height / 1672);
+    const yArte = (y) => config.height / 2 + (y - 1672 / 2) * escalaInicio;
+    const fundoInicio = this.add.rectangle(180, config.height / 2, 360, config.height, 0x233c24);
+    const arteInicio = this.add.image(180, config.height / 2, 'introducao').setScale(escalaInicio);
+    const dicaInicio = this.add.text(180, yArte(1531),
+        'Arraste o dedo na parte de baixo da tela', {
         resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: corTexto,
         align: 'center', lineSpacing: 5, backgroundColor: '#233c24',
         padding: { x: 8, y: 6 }
     }).setOrigin(0.5);
     const itensInicio = [fundoInicio, arteInicio, dicaInicio];
     if (this.recorde.granulados > 0 || this.recorde.troncos > 0) {
-        itensInicio.push(this.add.text(180, 532,
+        itensInicio.push(this.add.text(180, yArte(1390),
             `Recorde: ${contar(this.recorde.granulados, 'granulado')} · ${contar(this.recorde.troncos, 'tronco')}`, {
                 resolution: 4, fontFamily: 'Arial', fontSize: '13px', fontStyle: 'bold',
                 color: '#382017', backgroundColor: '#ffd24a', padding: { x: 10, y: 5 }
             }).setOrigin(0.5));
     }
-    const zonaMenu = (y) => this.add.zone(180, 320 + (y - 1672 / 2) * escalaInicio,
+    const zonaMenu = (y) => this.add.zone(180, yArte(y),
         470 * escalaInicio, 106 * escalaInicio).setInteractive({ useHandCursor: true });
     const botaoInicio = zonaMenu(760);
     const botaoConfiguracoes = zonaMenu(877);
@@ -590,9 +603,10 @@ function create(data = {}) {
     const mostrarAvisoInicio = (texto, comHistoria = false) => {
         if (this.avisoInicio) return;
         som.clique();
-        const fundo = this.add.rectangle(180, 320, 336, 330, corMadeiraEscura)
+        const centro = config.height / 2;
+        const fundo = this.add.rectangle(180, centro, 336, 330, corMadeiraEscura)
             .setStrokeStyle(2, 0xffe1a6);
-        const mensagem = this.add.text(180, 272, texto, {
+        const mensagem = this.add.text(180, centro - 48, texto, {
             resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: corTexto,
             align: 'center', wordWrap: { width: 300 }, lineSpacing: 6
         }).setOrigin(0.5);
@@ -600,7 +614,7 @@ function create(data = {}) {
             resolution: 4, fontFamily: 'Arial', fontSize: '17px', fontStyle: 'bold',
             color: '#ffffff', backgroundColor: '#634128', padding: { x: 20, y: 12 }
         };
-        const fechar = this.add.text(comHistoria ? 250 : 180, 428, 'VOLTAR', estiloBotao)
+        const fechar = this.add.text(comHistoria ? 250 : 180, centro + 108, 'VOLTAR', estiloBotao)
             .setOrigin(0.5).setInteractive({ useHandCursor: true });
         const itens = [fundo, mensagem, fechar];
         const fecharAviso = () => {
@@ -610,7 +624,7 @@ function create(data = {}) {
             botoesMenu.forEach((botao) => botao.setInteractive({ useHandCursor: true }));
         };
         if (comHistoria) {
-            const historia = this.add.text(112, 428, 'HISTÓRIA',
+            const historia = this.add.text(112, centro + 108, 'HISTÓRIA',
                 { ...estiloBotao, backgroundColor: '#8a5a2b' })
                 .setOrigin(0.5).setInteractive({ useHandCursor: true });
             historia.on('pointerup', () => {
@@ -627,7 +641,7 @@ function create(data = {}) {
     };
     this.avisoInicio = null;
     botaoConfiguracoes.on('pointerup', () => mostrarAvisoInicio(
-        'CONTROLES\n\nSegure na metade esquerda ou direita da tela para mover o gato.\n\n' +
+        'CONTROLES\n\nArraste o dedo na metade de baixo da tela: o gato anda até ficar alinhado com ele.\n\n' +
         'Os saltos são automáticos.\n\n' +
         'Os botões no alto da tela pausam o jogo e ligam ou desligam o som.', true));
     botaoSair.on('pointerup', () => mostrarAvisoInicio(
@@ -883,12 +897,12 @@ function alternarPausa(cena, pausar = !cena.pausado) {
     cena.physics.pause();
     cena.tweens.pauseAll();
     musica.parar();
-    const sombra = cena.add.rectangle(180, 320, 360, 640, 0x160d08, 0.72);
-    const titulo = cena.add.text(180, 290, 'PAUSADO', {
+    const sombra = cena.add.rectangle(180, config.height / 2, 360, config.height, 0x160d08, 0.72);
+    const titulo = cena.add.text(180, config.height / 2 - 30, 'PAUSADO', {
         resolution: 4, fontFamily: 'Arial', fontSize: '34px', fontStyle: 'bold',
         color: corTexto, stroke: '#1a0e08', strokeThickness: 6
     }).setOrigin(0.5);
-    const dica = cena.add.text(180, 345,
+    const dica = cena.add.text(180, config.height / 2 + 25,
         'Toque na tela para continuar', {
         resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: '#f4ddc9',
         align: 'center', lineSpacing: 4
@@ -974,9 +988,13 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
     });
     cena.vendoHistoria = true;
     const fixo = (objeto, profundidade) => objeto.setScrollFactor(0).setDepth(profundidade);
-    const fundo = fixo(cena.add.rectangle(180, 320, 360, 640, 0x1f130d), 40).setAlpha(0);
+    // Quadro, legenda e dica foram posicionados para 640 de altura; em telas
+    // mais altas descem juntos para ficar no meio.
+    const meio = (config.height - 640) / 2;
+    const fundo = fixo(cena.add.rectangle(180, config.height / 2, 360, config.height, 0x1f130d), 40)
+        .setAlpha(0);
     const pontos = fixo(cena.add.graphics(), 41);
-    const toque = fixo(cena.add.zone(180, 320, 360, 640), 41).setInteractive();
+    const toque = fixo(cena.add.zone(180, config.height / 2, 360, config.height), 41).setInteractive();
     const pular = fixo(cena.add.text(348, 26, 'PULAR  »', {
         resolution: 4, fontFamily: 'Arial', fontSize: '13px', fontStyle: 'bold',
         color: corTexto, backgroundColor: '#382017', padding: { x: 12, y: 7 }
@@ -986,7 +1004,7 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
         resolution: 4, fontFamily: 'Arial', fontSize: '16px', fontStyle: 'bold',
         color: '#3b2418', align: 'center', wordWrap: { width: 288 }, lineSpacing: 4
     }), 42).setOrigin(0.5).setFixedSize(288, 0);
-    const dica = fixo(cena.add.text(180, 604, 'Toque para continuar  ›', {
+    const dica = fixo(cena.add.text(180, 604 + meio, 'Toque para continuar  ›', {
         resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#f4ddc9'
     }), 41).setOrigin(0.5);
     const objetos = [fundo, pontos, toque, pular, fundoLegenda, legenda, dica];
@@ -1021,9 +1039,9 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
         legenda.setText(linhas);
         const altura = legenda.height + 26;
         fundoLegenda.clear()
-            .fillStyle(0xfff4d6, 1).fillRoundedRect(24, 452, 312, altura, 12)
-            .lineStyle(3, 0x3b2418, 1).strokeRoundedRect(24, 452, 312, altura, 12);
-        legenda.y = 452 + altura / 2;
+            .fillStyle(0xfff4d6, 1).fillRoundedRect(24, 452 + meio, 312, altura, 12)
+            .lineStyle(3, 0x3b2418, 1).strokeRoundedRect(24, 452 + meio, 312, altura, 12);
+        legenda.y = 452 + meio + altura / 2;
         legenda.setText('');
         // Conta pelo tempo, e nao por quadro, para digitar igual em qualquer aparelho.
         const inicio = cena.time.now;
@@ -1076,7 +1094,7 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
             .fillStyle(0xfff4d6, 1)
             .fillRoundedRect(-largura / 2 - 6, -altura / 2 - 6, largura + 12, altura + 12, 10);
         const imagem = cena.add.image(0, 0, 'historia', 'quadro' + novo).setScale(escala);
-        const atual = cena.add.container(520, 262, [moldura, imagem])
+        const atual = cena.add.container(520, 262 + meio, [moldura, imagem])
             .setScrollFactor(0).setDepth(41).setAngle(6).setAlpha(0);
         grupo = atual;
         cena.tweens.add({
@@ -1324,7 +1342,7 @@ function mostrarMorte(cena) {
         resolution: 4, fontFamily: 'Arial', fontSize: tamanho + 'px', color: cor,
         align: 'center', ...extra
     });
-    const sombra = cena.add.rectangle(180, 320, 360, 640, 0x160d08, 0.82)
+    const sombra = cena.add.rectangle(180, config.height / 2, 360, config.height, 0x160d08, 0.82)
         .setScrollFactor(0).setDepth(30).setAlpha(0);
     const fundo = cena.add.graphics()
         .fillStyle(0x3b2418, 1).fillRoundedRect(-150, -140, 300, 280, 20)
@@ -1348,7 +1366,7 @@ function mostrarMorte(cena) {
     const convite = cena.add.text(0, 92,
         'Toque para jogar de novo',
         estilo(15, '#f4ddc9', { lineSpacing: 4 })).setOrigin(0.5);
-    const painel = cena.add.container(180, 320,
+    const painel = cena.add.container(180, config.height / 2,
         [fundo, titulo, icone, pontos, troncos, recorde, convite])
         .setScrollFactor(0).setDepth(31).setScale(0.6).setAlpha(0);
 
@@ -1790,21 +1808,29 @@ function update(time, delta) {
         }
     }
 
-    let direcao = 0;
+    const velocidadeLateral = 200 * this.velocidadeJogo;
+    let velocidadeX = 0;
     const ponteiro = this.input.activePointer;
     if (this.cursors.left.isDown || this.teclasLaterais.A.isDown) {
-        direcao = -1;
+        velocidadeX = -velocidadeLateral;
     } else if (this.cursors.right.isDown || this.teclasLaterais.D.isDown) {
-        direcao = 1;
-    } else if (ponteiro.isDown && ponteiro.y / escalaRenderizacao > alturaHud) {
-        // Segure na metade esquerda ou direita da tela para andar.
-        direcao = ponteiro.x < this.scale.gameSize.width / 2 ? -1 : 1;
+        velocidadeX = velocidadeLateral;
+    } else if (ponteiro.isDown && ponteiro.downY / escalaRenderizacao > config.height / 2) {
+        // O dedo e uma linha invisivel: o gato anda ate ficar alinhado com ele.
+        // Vale o toque que comecou na metade de baixo, mesmo se o dedo subir depois.
+        // Perto do dedo a velocidade cai aos poucos, para parar sem passar do ponto.
+        // O corpo ja tem a posicao deste quadro; a imagem so e atualizada depois.
+        const alvoX = Phaser.Math.Clamp(ponteiro.x / escalaRenderizacao, 20, 340);
+        const distancia = alvoX - this.caixa.body.center.x;
+        if (Math.abs(distancia) > 0.5) {
+            velocidadeX = Phaser.Math.Clamp(distancia * 18, -velocidadeLateral, velocidadeLateral);
+        }
     }
 
-    this.caixa.body.setVelocityX(direcao * 200 * this.velocidadeJogo);
-    if (direcao !== 0) {
+    this.caixa.body.setVelocityX(velocidadeX);
+    if (Math.abs(velocidadeX) > 20) {
         // As imagens originais olham para a direita; mantem a pose ao parar.
-        this.caixa.setFlipX(direcao < 0);
+        this.caixa.setFlipX(velocidadeX < 0);
     }
 
     // Limita as laterais sem colocar um teto no mundo.
@@ -1827,7 +1853,7 @@ function update(time, delta) {
     const camera = this.cameras.main;
     // Deixa o gato subir ate perto do meio da tela antes de acompanhar.
     // Mantem a altura alcancada quando ele cai.
-    camera.scrollY = Math.min(camera.scrollY, this.caixa.y - 300);
+    camera.scrollY = Math.min(camera.scrollY, this.caixa.y - (config.height - folgaAbaixoGato));
     gerarPlataformas(this);
     atualizarMoedas(this, delta);
     atualizarCenario(this, delta);

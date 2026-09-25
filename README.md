@@ -21,12 +21,14 @@ O navegador precisa de acesso a internet para carregar o Phaser 3.90 pelo CDN in
 ## Controles
 
 - Toque na placa INICIAR, Espaco ou Enter para iniciar.
-- Setas esquerda/direita, A/D ou toque segurado nas laterais para mover.
+- Arraste o dedo na metade de baixo da tela: o gato anda ate ficar alinhado na vertical com o dedo e para ali. No PC, setas esquerda/direita ou A/D.
 - P ou Esc (ou o botao de pausa) pausa; toque na tela para continuar. O jogo pausa sozinho ao trocar de aba.
 - M (ou o botao de som) liga e desliga o som. A escolha fica salva.
 - Apos perder, toque, Espaco ou Enter para reiniciar.
 
 O jogo e pensado para celular: as dicas na tela falam so dos controles de toque, e os atalhos de teclado continuam funcionando no PC.
+
+A tela se ajusta ao formato do celular: o mundo tem sempre 360 de largura e a altura vai de 640 (9:16) ate 860, conforme a proporcao da tela ao abrir o jogo. Telas mais largas que 9:16 (tablets, PC) ganham faixas nas laterais.
 
 ## Arquivos
 
