@@ -30,7 +30,9 @@ O navegador precisa de acesso a internet para carregar o Phaser 3.90 pelo CDN in
 - `GameV2.js`: configuracao, cenas, movimento, plataformas, moedas e cenario.
 - `assets/`: imagens originais e texturas usadas no jogo.
 
-O ceu usa `CREU-camada-0.png` ate `CREU-camada-7.png`; a arvore usa `Group3141-camada-0.png` ate `Group3141-camada-7.png`. Essas partes derivam de `CREU.png` e `Group 3141.png`, evitando carregar texturas de 32768 px de altura no jogo. Mantenha as partes versionadas.
+O cenario carrega `assets/Cenario Jogo.svg` e gera faixas de ate 1399 x 2048 px com bordas sobrepostas durante o carregamento, para respeitar os limites de textura do celular. O tronco, o gato inicial e o contador ficam centralizados. Uma a cada tres plataformas oscila lateralmente, levando seu granulado junto; as duas primeiras e o chao ficam parados.
+
+O granulado dourado aparece em intervalos aleatorios de 18 a 30 plataformas e impulsiona o gato como uma mola.
 
 ## Validacao
 

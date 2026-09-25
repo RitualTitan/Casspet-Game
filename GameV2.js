@@ -1,4 +1,6 @@
 
+// Limita o custo de preenchimento no celular, preservando o mundo de 360 x 640.
+const escalaRenderizacao = window.matchMedia('(pointer: coarse)').matches ? 1.5 : 2;
 const config = {
     type: Phaser.AUTO,
     parent: 'jogo',
@@ -19,9 +21,8 @@ const config = {
         update: update,
     },
     scale: {
-        // Mais pixels no canvas, mantendo o mundo logico em 360 x 640.
-        width: 720,
-        height: 1280,
+        width: 360 * escalaRenderizacao,
+        height: 640 * escalaRenderizacao,
         mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH
     }
 };
@@ -29,15 +30,48 @@ const config = {
 const enquadramentoCenario = {
     abertura: 0.28,
     jogo: 0.40,
+    esticamentoHorizontal: 1.15,
+    centroTronco: 665,
     duracao: 900
+};
+const texturaCenario = {
+    largura: 1399,
+    altura: 8192,
+    alturaFaixa: 2046,
+    margem: 1
 };
 const game = new Phaser.Game(config);
 
 function preload() {
-    // CREU e Group 3141 divididos em partes de ate 2048 px para o celular.
-    for (let i = 0; i < 8; i++) {
-        this.load.image('ceu_' + i, 'assets/CREU-camada-' + i + '.png');
-        this.load.image('arvore_' + i, 'assets/Group3141-camada-' + i + '.png');
+    // Preserva o SVG inteiro dentro de cada recorte, com bordas sobrepostas.
+    if (!this.textures.exists('cenario_0')) {
+        this.load.once('filecomplete-text-cenarioSVG', (chave, tipo, svg) => {
+            const documento = new DOMParser().parseFromString(svg, 'image/svg+xml');
+            const raiz = documento.documentElement;
+            const [x, y, largura, altura] = raiz.getAttribute('viewBox').split(/[ ,]+/).map(Number);
+            raiz.setAttribute('x', x);
+            raiz.setAttribute('y', y);
+            raiz.setAttribute('width', largura);
+            raiz.setAttribute('height', altura);
+            const original = new XMLSerializer().serializeToString(raiz);
+            const unidadesPorPixel = altura / texturaCenario.altura;
+            const quantidade = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
+            for (let i = 0; i < quantidade; i++) {
+                const inicio = i * texturaCenario.alturaFaixa;
+                const alturaTrecho = Math.min(texturaCenario.alturaFaixa,
+                    texturaCenario.altura - inicio) + texturaCenario.margem * 2;
+                const topo = y + (inicio - texturaCenario.margem) * unidadesPorPixel;
+                // O pixel extra evita linhas vazias na filtragem durante o zoom.
+                const trecho = `<svg xmlns="http://www.w3.org/2000/svg"
+                    width="${texturaCenario.largura}" height="${alturaTrecho}"
+                    viewBox="${x} ${topo} ${largura} ${alturaTrecho * unidadesPorPixel}"
+                    preserveAspectRatio="none">${original}</svg>`;
+                const url = URL.createObjectURL(new Blob([trecho], { type: 'image/svg+xml' }));
+                this.load.once('complete', () => URL.revokeObjectURL(url));
+                this.load.svg('cenario_' + i, url);
+            }
+        });
+        this.load.text('cenarioSVG', 'assets/Cenario Jogo.svg');
     }
     this.load.svg('troncoLiso', 'assets/tronco liso.svg');
     this.load.svg('troncoRachado', 'assets/tronco rachado.svg');
@@ -46,55 +80,39 @@ function preload() {
     this.load.image('quasePulando', 'assets/3quasepualndo.png');
     this.load.image('caindo', 'assets/caindo.png');
     this.load.image('moeda', 'assets/moeda-jogo.png');
-    this.load.image('gramaBase', 'assets/base.png');
+    this.load.svg('moedaDourada', 'assets/granulado-dourado.svg');
     this.load.image('introducao', 'assets/inicio2.png');
 }
 
 function create(data = {}) {
-    this.cameras.main.setOrigin(0, 0).setZoom(2);
+    this.cache.text.remove('cenarioSVG');
+    this.cameras.main.setOrigin(0, 0).setZoom(escalaRenderizacao);
     this.iniciado = false;
     this.iniciando = false;
     this.morreu = false;
     this.totalTroncos = 0;
+    this.proximoGranuladoDourado = Phaser.Math.Between(18, 30);
     this.contador = 0;
     this.totalMoedas = 0;
     this.tempoMoedas = 0;
     this.moedas = this.physics.add.staticGroup();
     this.velocidadeJogo = 1;
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
-    criarFundoCenario(this);
-    // Aproveita somente a faixa de grama da base antiga, sem trocar a arvore.
-    const texturaGrama = this.textures.get('gramaBase');
-    if (!texturaGrama.has('grama')) {
-        texturaGrama.add('grama', 0, 400, 850, 600, 130);
-    }
-    // Alinhada ao chao inicial; sai da tela quando a camera acompanha o gato.
-    this.add.image(config.width / 2, 568, 'gramaBase', 'grama')
-        .setOrigin(0.5, 0).setDisplaySize(config.width, 78).setDepth(-1);
-    const arvoreFundo = this.add.container(config.width / 2, config.height)
-        .setScrollFactor(0);
-    for (let i = 0; i < 8; i++) {
-        arvoreFundo.add(this.add.image(0, (i - 8) * 2048,
-            'arvore_' + i)
-            .setOrigin(0.5, 0));
+    const cenarioFundo = this.add.container(config.width / 2, config.height)
+        .setScrollFactor(0).setDepth(-2);
+    const quantidadeFaixas = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
+    for (let i = 0; i < quantidadeFaixas; i++) {
+        const y = i * texturaCenario.alturaFaixa - texturaCenario.altura - texturaCenario.margem;
+        cenarioFundo.add(this.add.image(0, y, 'cenario_' + i)
+            .setOrigin(enquadramentoCenario.centroTronco / texturaCenario.largura, 0));
     }
     this.cenario = {
-        base: arvoreFundo, deslocamento: 0, alvo: 0,
+        base: cenarioFundo, deslocamento: 0, alvo: 0,
         larguraTronco: enquadramentoCenario.abertura,
-        alturaInicialGato: 532, paralaxe: 0.12, continuacoes: []
+        alturaInicialGato: 532, paralaxe: 0.12
     };
-    const imagem = this.textures.get('arvore_0').getSourceImage();
-    prepararTransicaoCenario(this, imagem, 'troncoContinuoTransicao');
-    const escalaMinima = config.width * Math.min(
-        enquadramentoCenario.abertura, enquadramentoCenario.jogo) / 730;
-    const quantidade = Math.ceil(config.height / (1952 * escalaMinima)) + 2;
-    for (let i = 0; i < quantidade; i++) {
-        this.cenario.continuacoes.push(this.add.image(config.width / 2, 0,
-            'troncoContinuoTransicao')
-            .setOrigin(0.5, 1).setScrollFactor(0));
-    }
     // O topo do chao fica em 572; metade da altura do gato e 40.
-    this.caixa = this.add.image(60, 532, 'mascote_1').setDisplaySize(78, 80);
+    this.caixa = this.add.image(config.width / 2, 532, 'mascote_1').setDisplaySize(78, 80);
     atualizarCenario(this, 0);
     this.physics.add.existing(this.caixa);
     this.caixa.body.setSize(1200, 1400);
@@ -102,7 +120,7 @@ function create(data = {}) {
 
     this.plataformas = this.physics.add.staticGroup();
     criarPlataforma(this, 180, 580, 360, true);
-    this.ultimaPlataformaX = 200;
+    this.ultimaPlataformaX = config.width / 2;
     this.ultimaPlataformaY = 580;
     this.cameras.main.setScroll(0, 0);
     gerarPlataformas(this);
@@ -113,11 +131,11 @@ function create(data = {}) {
     });
 
     // Texturas de texto em alta resolucao para manter nitidez com o zoom de 2x.
-    this.textoMoedas = this.add.text(16, 16, 'Granulados: 0', {
+    this.textoMoedas = this.add.text(config.width / 2, 16, 'Granulados: 0', {
         resolution: 4,
         fontFamily: 'Arial', fontSize: '14px', fontStyle: 'bold',
         color: '#ffe1a6', padding: { x: 8, y: 5 }
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(10);
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(10);
     this.fundoContador = this.add.graphics().setScrollFactor(0).setDepth(9);
     atualizarFundoContador(this);
     this.physics.add.overlap(this.caixa, this.moedas, coletarMoeda);
@@ -250,45 +268,102 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     cena.plataformas.add(plataforma);
     plataforma.body.updateFromGameObject();
     ajustarLarguraTronco(cena, plataforma);
+    // Uma a cada tres plataformas se move; as duas primeiras ficam paradas.
+    if (!chao && numero % 3 === 0) {
+        const margemMovimento = plataforma.displayWidth / 2 + 12 + 40;
+        plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento,
+            config.width - margemMovimento);
+        plataforma.body.updateFromGameObject();
+        plataforma.movimento = {
+            centro: plataforma.x,
+            fase: 0,
+            sentido: numero % 2 === 0 ? 1 : -1,
+            amplitude: 40,
+            velocidade: 1.2
+        };
+    }
     plataforma.body.checkCollision.down = false;
     plataforma.body.checkCollision.left = false;
     plataforma.body.checkCollision.right = false;
-    // Cada tronco tem 40% de chance de receber um granulado.
-    if (!chao && Phaser.Math.Between(1, 100) <= 40) criarMoeda(cena, plataforma);
+    // Especial raro: intervalo aleatorio de 18 a 30 plataformas entre dourados.
+    const dourada = !chao && numero >= cena.proximoGranuladoDourado;
+    if (dourada) cena.proximoGranuladoDourado = numero + Phaser.Math.Between(18, 30);
+    if (!chao && (dourada || Phaser.Math.Between(1, 100) <= 40)) {
+        criarMoeda(cena, plataforma, dourada);
+    }
 }
 
-function criarMoeda(cena, plataforma) {
-    const moeda = cena.add.image(plataforma.x, plataforma.y - 60, 'moeda')
+function criarMoeda(cena, plataforma, dourada = false) {
+    const moeda = cena.add.image(plataforma.x, plataforma.y - 60, dourada ? 'moedaDourada' : 'moeda')
         .setScale(38 / 808).setDepth(2);
+    moeda.dourada = dourada;
     moeda.plataforma = plataforma;
     moeda.yBase = moeda.y;
     moeda.fase = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    if (dourada) {
+        moeda.brilho = cena.add.graphics().setDepth(1);
+        moeda.once('destroy', () => moeda.brilho.destroy());
+        atualizarBrilhoGranulado(moeda, 0);
+    }
     cena.moedas.add(moeda);
     moeda.body.updateFromGameObject();
 }
 
+function atualizarBrilhoGranulado(moeda, tempo) {
+    const pulso = (Math.sin(tempo * 5 + moeda.fase) + 1) / 2;
+    const brilho = moeda.brilho;
+    brilho.clear();
+    brilho.fillStyle(0xffc629, 0.10 + pulso * 0.10).fillCircle(moeda.x, moeda.y, 29 + pulso * 5);
+    brilho.fillStyle(0xffe78a, 0.16 + pulso * 0.12).fillCircle(moeda.x, moeda.y, 21);
+    brilho.lineStyle(2, 0xfff4b0, 0.65 + pulso * 0.35);
+    for (let i = 0; i < 3; i++) {
+        const angulo = tempo * 1.4 + moeda.fase + i * Math.PI * 2 / 3;
+        const x = moeda.x + Math.cos(angulo) * 25;
+        const y = moeda.y + Math.sin(angulo) * 25;
+        brilho.lineBetween(x - 3, y, x + 3, y);
+        brilho.lineBetween(x, y - 3, x, y + 3);
+    }
+}
+
 function atualizarMoedas(cena, delta) {
     cena.tempoMoedas += delta;
-    // Copia a lista porque moedas fora da tela sao removidas durante o percurso.
-    cena.moedas.getChildren().slice().forEach(function (moeda) {
+    // Percorre de tras para frente para remover sem copiar a lista a cada quadro.
+    const moedas = cena.moedas.getChildren();
+    const tempo = cena.tempoMoedas / 1000;
+    for (let i = moedas.length - 1; i >= 0; i--) {
+        const moeda = moedas[i];
         if (moeda.yBase > cena.cameras.main.scrollY + config.height + 60) {
             moeda.destroy();
-            return;
+            continue;
         }
-        const tempo = cena.tempoMoedas / 1000;
         if (moeda.plataforma.active) moeda.x = moeda.plataforma.x;
         moeda.y = moeda.yBase + Math.sin(tempo * 3 + moeda.fase) * 5;
         moeda.angle = Math.sin(tempo * 6 + moeda.fase) * 12;
+        if (moeda.dourada) atualizarBrilhoGranulado(moeda, tempo);
         // Mantem a area de coleta junto da moeda enquanto ela flutua.
         moeda.body.updateFromGameObject();
-    });
+    }
 }
 
 function atualizarFundoContador(cena) {
     const texto = cena.textoMoedas;
     // Acompanha a largura do texto quando a quantidade de digitos aumenta.
     cena.fundoContador.clear().fillStyle(0x382017, 1)
-        .fillRoundedRect(texto.x, texto.y, texto.width, texto.height, 10);
+        .fillRoundedRect(texto.x - texto.width / 2, texto.y, texto.width, texto.height, 10);
+}
+
+function atualizarPlataformasMoveis(cena, delta) {
+    for (const plataforma of cena.plataformas.getChildren()) {
+        const movimento = plataforma.movimento;
+        if (!movimento) continue;
+        movimento.fase += delta / 1000 * movimento.velocidade * cena.velocidadeJogo;
+        const margem = plataforma.displayWidth / 2 + 12;
+        const amplitude = Math.max(0, Math.min(movimento.amplitude,
+            movimento.centro - margem, config.width - margem - movimento.centro));
+        plataforma.x = movimento.centro + Math.sin(movimento.fase) * amplitude * movimento.sentido;
+        // O corpo estatico acompanha a imagem para manter o salto no lugar certo.
+        plataforma.body.updateFromGameObject();
+    }
 }
 
 function coletarMoeda(caixa, moeda) {
@@ -299,7 +374,8 @@ function coletarMoeda(caixa, moeda) {
     cena.totalMoedas += 1;
     cena.textoMoedas.setText('Granulados: ' + cena.totalMoedas);
     atualizarFundoContador(cena);
-    const efeito = cena.add.image(moeda.x, moeda.y, 'moeda')
+    if (moeda.dourada) aplicarImpulsoDourado(caixa);
+    const efeito = cena.add.image(moeda.x, moeda.y, moeda.texture.key)
         .setScale(moeda.scaleX).setAngle(moeda.angle).setDepth(3);
     moeda.destroy();
     cena.tweens.add({
@@ -307,6 +383,21 @@ function coletarMoeda(caixa, moeda) {
         scaleX: efeito.scaleX * 1.4, scaleY: efeito.scaleY * 1.4,
         duration: 220, ease: 'Quad.easeOut',
         onComplete: () => efeito.destroy()
+    });
+}
+
+function aplicarImpulsoDourado(caixa) {
+    const cena = caixa.scene;
+    // Velocidade 1,6x maior: o salto sobe cerca de 2,56x a altura normal.
+    caixa.quedaSemVolta = false;
+    caixa.poseContatoAte = 0;
+    caixa.setTexture('pulando').setDisplaySize(78, 80);
+    caixa.body.setVelocityY(Math.min(caixa.body.velocity.y, -640 * cena.velocidadeJogo));
+    const onda = cena.add.circle(caixa.x, caixa.y + 32, 16, 0xffda45, 0.2)
+        .setStrokeStyle(3, 0xffec99).setDepth(3);
+    cena.tweens.add({
+        targets: onda, scaleX: 3, scaleY: 1.3, alpha: 0,
+        duration: 350, ease: 'Quad.easeOut', onComplete: () => onda.destroy()
     });
 }
 
@@ -339,40 +430,6 @@ function gerarPlataformas(cena) {
     }
 }
 
-function criarFundoCenario(cena) {
-    // Camada distante; a profundidade -1 fica disponivel para a proxima camada.
-    cena.fundoCenario = cena.add.container(0, 0).setScrollFactor(0).setDepth(-2);
-    let altura = 0;
-    for (let i = 0; i < 8; i++) {
-        const trecho = cena.add.image(config.width / 2, altura, 'ceu_' + i)
-            .setOrigin(0.5, 0);
-        trecho.setScale(config.width / trecho.width);
-        cena.fundoCenario.add(trecho);
-        altura += trecho.displayHeight;
-    }
-    cena.fundoCenario.alturaTotal = altura;
-    cena.fundoCenario.y = config.height - altura;
-}
-
-function prepararTransicaoCenario(cena, imagem, chave) {
-    if (cena.textures.exists(chave)) return;
-    // Reutiliza o topo da textura escolhida acima da imagem inteira.
-    const largura = imagem.width;
-    const altura = 1984;
-    const textura = cena.textures.createCanvas(chave, largura, altura);
-    const contexto = textura.getContext();
-    contexto.drawImage(imagem, 0, 64, largura, altura, 0, 0, largura, altura);
-    const inicio = altura - 32;
-    const gradiente = contexto.createLinearGradient(0, inicio, 0, altura);
-    gradiente.addColorStop(0, 'rgba(0, 0, 0, 1)');
-    gradiente.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    contexto.globalCompositeOperation = 'destination-in';
-    contexto.fillStyle = gradiente;
-    contexto.fillRect(0, 0, largura, altura);
-    contexto.globalCompositeOperation = 'source-over';
-    textura.refresh();
-}
-
 // Reutilizavel para abrir o plano novamente em uma futura cena da historia.
 function enquadrarCenario(cena, larguraTronco, duracao = 900, aoConcluir = () => {}) {
     cena.tweens.killTweensOf(cena.cenario);
@@ -394,44 +451,21 @@ function enquadrarCenario(cena, larguraTronco, duracao = 900, aoConcluir = () =>
 
 function atualizarCenario(cena, delta) {
     const fundo = cena.cenario;
-    const larguraMadeira = config.width * fundo.larguraTronco;
-    const escalaBase = larguraMadeira / 730;
-    const escalaContinuacao = escalaBase;
-    fundo.base.setScale(escalaBase);
+    // Nas faixas de 1399 px, o tronco ocupa cerca de 182,5 px.
+    const escala = config.width * fundo.larguraTronco / 182.5;
+    // Centraliza pela madeira da arte e alarga o cenario em 15%.
+    fundo.base.setScale(escala * enquadramentoCenario.esticamentoHorizontal, escala);
     fundo.base.x = config.width / 2;
-    fundo.alturaTrecho = 1984 * escalaContinuacao;
-    fundo.sobreposicao = 32 * escalaContinuacao;
-    fundo.passoTrecho = fundo.alturaTrecho - fundo.sobreposicao;
-    // Acompanha a maior altura do gato, sem voltar para baixo entre os saltos.
     fundo.alvo = Math.max(fundo.alvo,
         (fundo.alturaInicialGato - cena.caixa.y) * fundo.paralaxe);
-    // Suavizacao independente da taxa de quadros; o fundo se move mais devagar.
     const suavizacao = 1 - Math.exp(-5 * delta / 1000);
     fundo.deslocamento += (fundo.alvo - fundo.deslocamento) * suavizacao;
-    // O ceu sobe mais devagar que a arvore, revelando o fundo de baixo para cima.
-    const alturaCeu = cena.fundoCenario.alturaTotal;
-    cena.fundoCenario.y = config.height - alturaCeu + Math.min(
-        fundo.deslocamento * 0.35, Math.max(0, alturaCeu - config.height));
-    // Ao olhar mais para cima, a imagem desce e revela o trecho acima da base.
-    fundo.base.y = config.height + fundo.deslocamento;
-    const emenda = fundo.base.y - 16384 * escalaBase;
-    fundo.base.setVisible(emenda < config.height);
-    // Containers nao precisam desenhar as camadas que estao fora da tela.
-    cena.fundoCenario.list.forEach(function (trecho) {
-        const topo = cena.fundoCenario.y + trecho.y;
-        trecho.setVisible(topo < config.height && topo + trecho.displayHeight > 0);
-    });
+    // Revela a arte durante a subida e mantem o topo cobrindo a tela ao final.
+    fundo.base.y = config.height + Math.min(fundo.deslocamento,
+        Math.max(0, texturaCenario.altura * escala - config.height));
     fundo.base.list.forEach(function (trecho) {
-        const topo = fundo.base.y + trecho.y * escalaBase;
-        trecho.setVisible(topo < config.height && topo + trecho.height * escalaBase > 0);
-    });
-    // Recicla somente os trechos fora da tela, sem criar imagens a cada quicada.
-    const primeiro = Math.max(0, Math.floor((emenda - config.height) / fundo.passoTrecho));
-    fundo.continuacoes.forEach(function (trecho, indice) {
-        trecho.setScale(escalaContinuacao);
-        trecho.x = config.width / 2;
-        trecho.y = emenda + fundo.sobreposicao - (primeiro + indice) * fundo.passoTrecho;
-        trecho.setVisible(trecho.y > 0 && trecho.y - fundo.alturaTrecho < config.height);
+        const topo = fundo.base.y + trecho.y * escala;
+        trecho.setVisible(topo < config.height && topo + trecho.height * escala > 0);
     });
 }
 
@@ -463,6 +497,7 @@ function pular(caixa,plataforma) {
 
 function update(time, delta) {
     if (!this.iniciado || this.morreu) return;
+    atualizarPlataformasMoveis(this, delta);
     if (this.caixa.y - this.caixa.displayHeight / 2 >
         this.cameras.main.scrollY + config.height) {
         mostrarMorte(this);
@@ -523,9 +558,11 @@ function update(time, delta) {
 function limparPlataformasForaDaTela(cena) {
     // A camera so sobe: plataformas abaixo dessa margem nao podem voltar ao jogo.
     const limite = cena.cameras.main.scrollY + config.height + 160;
-    cena.plataformas.getChildren().slice().forEach(function (plataforma) {
+    const plataformas = cena.plataformas.getChildren();
+    for (let i = plataformas.length - 1; i >= 0; i--) {
+        const plataforma = plataformas[i];
         if (plataforma.body.top > limite) plataforma.destroy();
-    });
+    }
 }
 
 function temPlataformaAlcancavel(cena) {
@@ -543,6 +580,10 @@ function temPlataformaAlcancavel(cena) {
         const tempo = (Math.sqrt(corpo.velocity.y ** 2 +
             2 * gravidade * Math.max(0, distanciaY)) - corpo.velocity.y) / gravidade;
         const distanciaX = Math.max(alvo.left - corpo.right, corpo.left - alvo.right, 0);
-        return distanciaX <= 200 * cena.velocidadeJogo * tempo + 2;
+        // Nao declara uma queda definitiva enquanto um tronco pode se aproximar.
+        const alcanceMovel = plataforma.movimento
+            ? plataforma.movimento.amplitude * plataforma.movimento.velocidade * cena.velocidadeJogo * tempo
+            : 0;
+        return distanciaX <= 200 * cena.velocidadeJogo * tempo + alcanceMovel + 2;
     });
 }
