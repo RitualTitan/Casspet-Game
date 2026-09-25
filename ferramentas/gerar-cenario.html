@@ -18,8 +18,9 @@
   <p>
     Converte <code>assets/Cenario Jogo 1.svg</code> nas faixas WebP que o jogo carrega
     (<code>assets/cenario/cenario-N.webp</code>), suavizando as emendas entre os blocos
-    repetidos do tronco. Rode de novo sempre que o SVG mudar e salve os arquivos baixados
-    em <code>assets/cenario/</code>.
+    repetidos do tronco. O degrade do ceu fica de fora (fundo transparente): o jogo desenha
+    o ceu, que muda com a altura. Rode de novo sempre que o SVG mudar e salve os arquivos
+    baixados em <code>assets/cenario/</code>.
   </p>
   <p>Abra esta pagina pelo servidor local do jogo (por exemplo http://localhost:8000/ferramentas/gerar-cenario.html).</p>
   <button id="gerar">Gerar faixas</button>
@@ -140,50 +141,6 @@
       return faixas.length;
     }
 
-    // A borda da imagem da floresta deixa uma linha fina no ceu. Acha linhas de
-    // 1 a 3 px que destoam das vizinhas no ceu e as refaz interpolando acima e abaixo,
-    // so onde a imagem e lisa (ceu), sem borrar arvores e nuvens.
-    function removerLinhasCeu(ctx, largura, altura) {
-      const colunas = [];
-      for (let x = 330; x < 500; x += 3) colunas.push(x);
-      for (let x = 830; x < 980; x += 3) colunas.push(x);
-      const dados = ctx.getImageData(0, 0, largura, altura).data;
-      const cor = (x, y) => { const i = (y * largura + x) * 4; return [dados[i], dados[i + 1], dados[i + 2], dados[i + 3]]; };
-      const diferenca = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
-      const linhas = [];
-      for (let y = 4; y < altura - 4; y++) {
-        let ceu = 0;
-        let destoa = 0;
-        for (const x of colunas) {
-          const acima = cor(x, y - 3);
-          const abaixo = cor(x, y + 3);
-          if (acima[3] < 250 || acima[2] < acima[0] + 60 || diferenca(acima, abaixo) > 12) continue;
-          ceu++;
-          const meio = [0, 1, 2].map((c) => (acima[c] + abaixo[c]) / 2);
-          if (diferenca(cor(x, y), meio) > 24) destoa++;
-        }
-        if (ceu > 12 && destoa / ceu > 0.5) linhas.push(y);
-      }
-      if (!linhas.length) return 0;
-      const imagem = ctx.getImageData(0, 0, largura, altura);
-      const p = imagem.data;
-      for (const y of linhas) {
-        for (let x = 0; x < largura; x++) {
-          const a = ((y - 3) * largura + x) * 4;
-          const b = ((y + 3) * largura + x) * 4;
-          if (p[a + 3] < 250 || p[b + 3] < 250) continue;
-          if (Math.abs(p[a] - p[b]) + Math.abs(p[a + 1] - p[b + 1]) + Math.abs(p[a + 2] - p[b + 2]) > 12) continue;
-          for (let k = -2; k <= 2; k++) {
-            const i = ((y + k) * largura + x) * 4;
-            const t = (k + 3) / 6;
-            for (let c = 0; c < 3; c++) p[i + c] = p[a + c] + (p[b + c] - p[a + c]) * t;
-          }
-        }
-      }
-      ctx.putImageData(imagem, 0, 0);
-      return linhas.length;
-    }
-
     function carregarImagem(url) {
       return new Promise((resolver, rejeitar) => {
         const imagem = new Image();
@@ -203,13 +160,16 @@
       raiz.setAttribute('y', y);
       raiz.setAttribute('width', largura);
       raiz.setAttribute('height', altura);
-      // As faixas de gradiente do ceu e os blocos do tronco (cor base e veios) se
-      // encostam; um contorno da mesma cor fecha a fresta que o anti-aliasing deixa
-      // entre eles. Nos veios o contorno e mais fino para nao engrossar o desenho.
+      // O ceu sao as faixas retangulares preenchidas com os degrades paint0 a paint10;
+      // saem para o fundo ficar transparente.
+      documento.querySelectorAll('path[fill^="url(#paint"]').forEach((forma) => forma.remove());
+      // Os blocos do tronco (cor base e veios) se encostam; um contorno da mesma cor
+      // fecha a fresta que o anti-aliasing deixa entre eles. Nos veios o contorno e
+      // mais fino para nao engrossar o desenho.
       const larguraContorno = { '#EF8830': 24, '#CB601D': 16 };
       documento.querySelectorAll('path').forEach((forma) => {
         const cor = forma.getAttribute('fill') || '';
-        const largura = cor.startsWith('url(#paint') ? 24 : larguraContorno[cor];
+        const largura = larguraContorno[cor];
         if (!largura || forma.hasAttribute('stroke')) return;
         forma.setAttribute('stroke', cor);
         forma.setAttribute('stroke-width', String(largura));
@@ -237,8 +197,7 @@
         const ctx = tela.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(imagem, 0, 0, tela.width, tela.height);
         const emendas = preencherFalhasVeios(ctx, tela.width, tela.height) +
-          suavizarEmendasTronco(ctx, tela.width, tela.height).length +
-          removerLinhasCeu(ctx, tela.width, tela.height);
+          suavizarEmendasTronco(ctx, tela.width, tela.height).length;
         const blob = await new Promise((resolver) => tela.toBlob(resolver, 'image/webp', 0.9));
         faixas.push({ nome: `cenario-${i}.webp`, blob, emendas });
       }

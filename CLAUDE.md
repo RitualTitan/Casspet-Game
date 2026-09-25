@@ -48,11 +48,15 @@ ser revista em CONFIGURACOES > HISTORIA.
 - Guaxinim: `assets/guaxinim.png` (recorte transparente de `guaxinim-original.webp`); o pacote que ele
   carrega e a textura `fx_saco`, desenhada no codigo.
 - Sons e musica sao sintetizados com Web Audio (objetos `som`, `musica` e `trilha`), sem arquivos de audio.
+- **Ceu:** as faixas do cenario nao tem ceu (a ferramenta tira o degrade do SVG e deixa o fundo transparente).
+  O ceu e desenhado no codigo (`criarCeu`/`atualizarCeu`) e muda com a altura alcancada em troncos (`fasesCeu`):
+  dia, fim de tarde (30), por do sol (65), noite (95) e espaco (150), com sol que se poe, estrelas, estrelas
+  cadentes, lua, Terra e planeta com anel; a luz do cenario acompanha. Aprovado pelo usuario. As fases evitam
+  multiplos de 20 (aviso de "MAIS RAPIDO!") e a noite vem antes da copa do pinheiro (~110 a ~185 troncos).
 
 ## Ideias guardadas pelo usuario (ainda nao feitas)
 
 - Passarinho inimigo a partir de certa altura.
-- Ceu mudando com a altura (tarde, por do sol, noite).
 - Um final no topo da arvore (ninho do guaxinim + quadrinho final) - sugerido, ainda nao confirmado.
 
 ## Observacoes
