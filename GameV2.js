@@ -50,11 +50,9 @@ const texturaCenario = {
     alturaFaixa: 2044,
     margem: 2
 };
-// Previa do ceu mudando com a altura, aberta por ceu.html. No jogo oficial fica desligada.
-const previaCeu = window.previaCeu === true;
 // Cada tronco fica em media 212 acima do anterior (190 a 235, em gerarPlataformas).
 const alturaPorTronco = 212;
-// Fases do ceu pela altura alcancada, em troncos. O ceu fica parado em cada fase e
+// O ceu e desenhado no jogo, atras do cenario, e muda pela altura alcancada, em troncos. O ceu fica parado em cada fase e
 // muda nos ultimos `transicaoCeu` troncos antes da seguinte. topo, meio e base formam
 // o degrade; luz tinge o cenario; sol e a altura do sol na tela (acima de 1 ja se pos);
 // estrelas, lua e espaco vao de 0 a 1. As fases ficam fora dos multiplos de 20 para o
@@ -435,11 +433,10 @@ function preload() {
     // Faixas do cenario ja desenhadas a partir de assets/Cenario Jogo 1.svg por
     // ferramentas/gerar-cenario.html, com as emendas do tronco suavizadas.
     // Carregar o SVG de 12 MB direto era lento demais no celular.
-    // Na previa do ceu as faixas vem sem o degrade do ceu, que e desenhado no jogo.
-    const pastaCenario = previaCeu ? 'assets/cenario-sem-ceu' : 'assets/cenario';
+    // As faixas vem sem o degrade do ceu, que e desenhado no jogo (criarCeu).
     const quantidadeFaixas = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
     for (let i = 0; i < quantidadeFaixas; i++) {
-        this.load.image('cenario_' + i, `${pastaCenario}/cenario-${i}.webp`);
+        this.load.image('cenario_' + i, `assets/cenario/cenario-${i}.webp`);
     }
     this.load.svg('troncoLiso', 'assets/tronco liso.svg');
     this.load.svg('troncoRachado', 'assets/tronco rachado.svg');
@@ -481,8 +478,6 @@ function create(data = {}) {
     this.moedas = this.physics.add.staticGroup();
     this.velocidadeJogo = 1;
     this.sombraGato = null;
-    this.ceu = null;
-    this.textoPrevia = null;
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
     const cenarioFundo = this.add.container(config.width / 2, config.height)
         .setScrollFactor(0).setDepth(-2);
@@ -828,7 +823,6 @@ function criarHud(cena) {
     const botaoSom = criarBotaoHud(cena, 336, desenharIconeSom, () => som.alternarMudo());
     cena.hud = { granulados, fundo, icone, texto, troncos, fundoTroncos, textoTroncos, botaoSom };
     atualizarHud(cena);
-    if (previaCeu) criarControlesPrevia(cena);
     [granulados, troncos, botaoPausa.grafico, botaoSom.grafico].forEach((item, i) => {
         item.setAlpha(0);
         item.y -= 20;
@@ -1744,9 +1738,8 @@ function criarTexturasCeu(cena) {
     g.destroy();
 }
 
-// Ceu da previa, atras do cenario sem ceu: degrade, sol, estrelas, lua e planetas.
+// Ceu atras do cenario (que nao tem ceu): degrade, sol, estrelas, lua e planetas.
 function criarCeu(cena) {
-    if (!previaCeu) return;
     criarTexturasCeu(cena);
     const fixo = (objeto, profundidade) => objeto.setScrollFactor(0).setDepth(profundidade);
     const brilhos = [];
@@ -1776,7 +1769,6 @@ function criarCeu(cena) {
 
 function atualizarCeu(cena, delta) {
     const ceu = cena.ceu;
-    if (!ceu) return;
     ceu.tempo += delta / 1000;
     const troncos = Math.max(0, cena.alturaMax) / alturaPorTronco;
     let indice = 0;
@@ -1790,7 +1782,6 @@ function atualizarCeu(cena, delta) {
         ceu.fase = indice;
         mostrarFaixa(cena, atual.aviso[0], atual.aviso[1], atual.cor);
     }
-    if (cena.textoPrevia) cena.textoPrevia.setText(`Prévia do céu · ${Math.floor(troncos)} troncos de altura`);
 
     // O degrade so e redesenhado quando as cores mudam.
     const topo = cor('topo');
@@ -1856,25 +1847,6 @@ function criarEstrelaCadente(cena) {
         targets: rastro, alpha: 0.9, duration: 150, hold: 350, yoyo: true,
         onComplete: () => rastro.destroy()
     });
-}
-
-// So na previa: botao para subir rapido e a altura atual, para ver todas as fases do ceu.
-function criarControlesPrevia(cena) {
-    const botao = cena.add.text(10, 50, '▲ SUBIR', {
-        resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold',
-        color: '#382017', backgroundColor: '#ffd24a', padding: { x: 10, y: 6 }
-    }).setScrollFactor(0).setDepth(12).setInteractive({ useHandCursor: true });
-    botao.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
-        // Nao deixa o toque retomar a pausa.
-        evento.stopPropagation();
-        if (!cena.iniciado || cena.morreu || cena.pausado) return;
-        aplicarImpulsoDourado(cena.caixa, 1500);
-    });
-    cena.textoPrevia = cena.add.text(82, 62, '', {
-        resolution: 4, fontFamily: 'Arial', fontSize: '11px', fontStyle: 'bold',
-        color: corTexto, stroke: '#1a0e08', strokeThickness: 3
-    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(12);
-    atualizarCeu(cena, 0);
 }
 
 // Achata ou estica o gato e volta ao normal com um balanco elastico.
