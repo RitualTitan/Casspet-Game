@@ -1297,7 +1297,8 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
     // Quadro, legenda e dica foram posicionados para 640 de altura; em telas
     // mais altas descem juntos para ficar no meio.
     const meio = (config.height - 640) / 2;
-    const fundo = fixo(cena.add.rectangle(180, config.height / 2, 360, config.height, 0x1f130d), 40)
+    // Maior que a tela: o tremor do quadro do roubo nao deixa aparecer o jogo por tras.
+    const fundo = fixo(cena.add.rectangle(180, config.height / 2, 360 + 80, config.height + 80, 0x1f130d), 40)
         .setAlpha(0);
     const pontos = fixo(cena.add.graphics(), 41);
     const toque = fixo(cena.add.zone(180, config.height / 2, 360, config.height), 41).setInteractive();
