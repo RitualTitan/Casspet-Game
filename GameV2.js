@@ -1,11 +1,17 @@
 
 // Limita o custo de preenchimento no celular, preservando o mundo de 360 x 640.
-const escalaRenderizacao = window.matchMedia('(pointer: coarse)').matches ? 1.5 : 2;
+const telaDeToque = window.matchMedia('(pointer: coarse)').matches;
+const escalaRenderizacao = telaDeToque ? 1.5 : 2;
+// "1 granulado", "2 granulados".
+const contar = (quantidade, palavra) => `${quantidade} ${palavra}${quantidade === 1 ? '' : 's'}`;
 const config = {
     type: Phaser.AUTO,
     parent: 'jogo',
     width: 360,
     height: 640,
+    // Abaixo de 30 fps o jogo desacelera em vez de dar passos longos,
+    // que deixariam o gato atravessar um tronco num engasgo do navegador.
+    fps: { min: 30, smoothStep: true },
     physics: {
         default: 'arcade',
         arcade: {
@@ -34,44 +40,367 @@ const enquadramentoCenario = {
     centroTronco: 665,
     duracao: 900
 };
+// Medidas das faixas em assets/cenario/ (iguais as de ferramentas/gerar-cenario.html).
 const texturaCenario = {
     largura: 1399,
     altura: 8192,
-    alturaFaixa: 2046,
-    margem: 1
+    alturaFaixa: 2044,
+    margem: 2
 };
+// A partir de 160 troncos o jogo para de acelerar (3x a velocidade inicial).
+const velocidadeMaxima = 3;
+// Superficie da grama do chao, onde ficam os pes do gato no comeco.
+// Com essa altura a terra de assets/chao.webp cobre ate a borda de baixo da tela.
+const alturaChao = 596;
+// Posicao da superficie da grama dentro de assets/chao.webp (900 x 229 px).
+const superficieChao = 104 / 229;
+// Faixa do topo reservada ao placar e aos botoes; toques ali nao movem o gato.
+const alturaHud = 48;
+const chaveRecorde = 'granulando.recorde';
+const chaveMudo = 'granulando.mudo';
+const chaveHistoria = 'granulando.historiaVista';
+const corTexto = '#ffe1a6';
+const corMadeiraEscura = 0x382017;
+// Recortes da pagina de quadrinhos (assets/historia.webp, 1333 x 2000), em ordem de leitura.
+const quadrosHistoria = [
+    { x: 0, y: 0, largura: 658, altura: 613, efeito: 'feliz',
+        texto: 'Era um dia tranquilo. O gatinho estava todo feliz com seu pacote novo de Granulado de Madeira CassPet.' },
+    { x: 676, y: 0, largura: 657, altura: 613, efeito: 'suspense',
+        texto: 'Mas alguém estava espiando pela janela...' },
+    { x: 0, y: 622, largura: 658, altura: 631, efeito: 'roubo',
+        texto: 'O guaxinim roubou o pacote e fugiu correndo, derrubando granulados pelo caminho!' },
+    { x: 676, y: 622, largura: 657, altura: 631, efeito: 'fuga',
+        texto: 'Ele escalou a árvore mais alta da floresta, espalhando granulados pelos troncos.' },
+    { x: 0, y: 1263, largura: 658, altura: 737, efeito: 'risada',
+        texto: 'Lá de cima, o guaxinim ainda deu risada. O gatinho ficou sem fôlego só de olhar...' },
+    { x: 676, y: 1263, largura: 657, altura: 737, efeito: 'final',
+        texto: 'Mas esse gatinho não desiste! Pule de tronco em tronco, recupere os granulados e alcance o guaxinim!' }
+];
 const game = new Phaser.Game(config);
 
+// O armazenamento pode falhar em aba anonima; o jogo segue sem salvar.
+function lerArmazenado(chave, padrao) {
+    try {
+        const valor = localStorage.getItem(chave);
+        return valor === null ? padrao : JSON.parse(valor);
+    } catch (erro) {
+        return padrao;
+    }
+}
+
+function salvarArmazenado(chave, valor) {
+    try {
+        localStorage.setItem(chave, JSON.stringify(valor));
+    } catch (erro) {
+        // Sem armazenamento disponivel.
+    }
+}
+
+function lerRecorde() {
+    const salvo = lerArmazenado(chaveRecorde, {}) || {};
+    return {
+        granulados: Number(salvo.granulados) || 0,
+        troncos: Number(salvo.troncos) || 0,
+        altura: Number(salvo.altura) || 0
+    };
+}
+
+// Efeitos sonoros sintetizados na hora, sem arquivos de audio.
+const som = {
+    ctx: null,
+    saida: null,
+    mudo: lerArmazenado(chaveMudo, false) === true,
+    // O navegador so libera audio depois de um toque ou tecla.
+    iniciar() {
+        if (!this.ctx) {
+            const Contexto = window.AudioContext || window.webkitAudioContext;
+            if (!Contexto) return;
+            this.ctx = new Contexto();
+            this.saida = this.ctx.createGain();
+            this.saida.gain.value = this.mudo ? 0 : 0.5;
+            this.saida.connect(this.ctx.destination);
+        }
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+    },
+    alternarMudo() {
+        this.mudo = !this.mudo;
+        salvarArmazenado(chaveMudo, this.mudo);
+        if (this.saida) {
+            this.saida.gain.setTargetAtTime(this.mudo ? 0 : 0.5, this.ctx.currentTime, 0.02);
+        }
+    },
+    tom(frequencia, duracao, { tipo = 'square', volume = 0.2, ate = 0, atraso = 0 } = {}) {
+        if (!this.ctx || this.mudo) return;
+        const inicio = this.ctx.currentTime + atraso;
+        const oscilador = this.ctx.createOscillator();
+        const ganho = this.ctx.createGain();
+        oscilador.type = tipo;
+        oscilador.frequency.setValueAtTime(frequencia, inicio);
+        if (ate) oscilador.frequency.exponentialRampToValueAtTime(ate, inicio + duracao);
+        ganho.gain.setValueAtTime(0.0001, inicio);
+        ganho.gain.exponentialRampToValueAtTime(volume, inicio + 0.008);
+        ganho.gain.exponentialRampToValueAtTime(0.0001, inicio + duracao);
+        oscilador.connect(ganho).connect(this.saida);
+        oscilador.start(inicio);
+        oscilador.stop(inicio + duracao + 0.02);
+    },
+    ruido(duracao, { volume = 0.2, frequencia = 1000, atraso = 0 } = {}) {
+        if (!this.ctx || this.mudo) return;
+        const inicio = this.ctx.currentTime + atraso;
+        const amostras = Math.ceil(this.ctx.sampleRate * duracao);
+        const buffer = this.ctx.createBuffer(1, amostras, this.ctx.sampleRate);
+        const dados = buffer.getChannelData(0);
+        for (let i = 0; i < amostras; i++) dados[i] = Math.random() * 2 - 1;
+        const fonte = this.ctx.createBufferSource();
+        const filtro = this.ctx.createBiquadFilter();
+        const ganho = this.ctx.createGain();
+        fonte.buffer = buffer;
+        filtro.type = 'bandpass';
+        filtro.frequency.value = frequencia;
+        ganho.gain.setValueAtTime(volume, inicio);
+        ganho.gain.exponentialRampToValueAtTime(0.0001, inicio + duracao);
+        fonte.connect(filtro).connect(ganho).connect(this.saida);
+        fonte.start(inicio);
+    },
+    vibrar(ms) {
+        if (!this.mudo && navigator.vibrate) navigator.vibrate(ms);
+    },
+    clique() {
+        this.tom(660, 0.06, { tipo: 'sine', volume: 0.12 });
+    },
+    pulo() {
+        const variacao = Phaser.Math.FloatBetween(0.95, 1.05);
+        this.tom(330 * variacao, 0.13, { tipo: 'sine', volume: 0.12, ate: 700 * variacao });
+    },
+    // Coletas seguidas sobem de tom, como uma escala.
+    granulado(combo) {
+        const passo = 2 ** (Math.min(combo, 12) / 12);
+        this.tom(988 * passo, 0.07, { volume: 0.07 });
+        this.tom(1319 * passo, 0.14, { volume: 0.07, atraso: 0.06 });
+    },
+    dourado() {
+        [523, 659, 784, 1047, 1319].forEach((frequencia, i) =>
+            this.tom(frequencia, 0.16, { tipo: 'triangle', volume: 0.16, atraso: i * 0.05 }));
+        this.tom(180, 0.4, { tipo: 'sine', volume: 0.14, ate: 900 });
+        this.vibrar(25);
+    },
+    quebra() {
+        this.ruido(0.18, { volume: 0.35, frequencia: 650 });
+        this.tom(170, 0.16, { tipo: 'triangle', volume: 0.2, ate: 60 });
+    },
+    nivel() {
+        [392, 523, 659, 784].forEach((frequencia, i) =>
+            this.tom(frequencia, 0.14, { volume: 0.06, atraso: i * 0.08 }));
+    },
+    recorde() {
+        [659, 784, 1047, 1319, 1568].forEach((frequencia, i) =>
+            this.tom(frequencia, 0.2, { tipo: 'triangle', volume: 0.15, atraso: i * 0.07 }));
+    },
+    risada() {
+        [0, 0.12, 0.24].forEach((atraso) =>
+            this.tom(900, 0.08, { tipo: 'square', volume: 0.04, ate: 1300, atraso }));
+    },
+    guaxinimPulo() {
+        this.tom(420, 0.1, { tipo: 'sine', volume: 0.07, ate: 820 });
+    },
+    feliz() {
+        this.tom(784, 0.14, { tipo: 'sine', volume: 0.12 });
+        this.tom(1047, 0.24, { tipo: 'sine', volume: 0.12, atraso: 0.11 });
+    },
+    suspense() {
+        this.tom(196, 0.4, { tipo: 'triangle', volume: 0.14 });
+        this.tom(185, 0.6, { tipo: 'triangle', volume: 0.14, atraso: 0.38 });
+    },
+    virarPagina() {
+        this.ruido(0.14, { volume: 0.07, frequencia: 2400 });
+    },
+    morte() {
+        this.tom(523, 0.16, { tipo: 'triangle', volume: 0.18 });
+        this.tom(392, 0.16, { tipo: 'triangle', volume: 0.18, atraso: 0.15 });
+        this.tom(262, 0.55, { tipo: 'triangle', volume: 0.18, atraso: 0.3, ate: 120 });
+        this.vibrar(60);
+    }
+};
+
+// Trilha de fundo sintetizada: 8 compassos em loop (C Am F G | F G C C),
+// com melodia, baixo, acordes e bateria. Cada passo e uma colcheia.
+const trilha = {
+    acordes: [[48, 52, 55], [45, 48, 52], [41, 45, 48], [43, 47, 50],
+        [41, 45, 48], [43, 47, 50], [48, 52, 55], [48, 52, 55]],
+    melodia: [
+        76, 0, 79, 0, 84, 0, 79, 0,
+        81, 0, 79, 76, 0, 0, 72, 0,
+        77, 0, 81, 0, 84, 0, 81, 79,
+        79, 0, 0, 0, 74, 0, 71, 0,
+        81, 0, 81, 79, 77, 0, 81, 0,
+        79, 0, 83, 0, 86, 0, 83, 0,
+        84, 0, 79, 0, 76, 0, 79, 0,
+        84, 0, 0, 0, 79, 0, 0, 0
+    ],
+    // Fundamental, quinta, oitava e quinta de novo: o baixo "saltitante".
+    baixo: [0, null, 7, null, 12, null, 7, null]
+};
+
+const musica = {
+    tocando: false,
+    passo: 0,
+    proximoTempo: 0,
+    bpm: 112,
+    temporizador: null,
+    saida: null,
+    ruido: null,
+    frequencia(midi) {
+        return 440 * 2 ** ((midi - 69) / 12);
+    },
+    // Recomecar volta ao primeiro compasso; retomar depois da pausa continua de onde parou.
+    tocar(recomecar = true) {
+        som.iniciar();
+        const ctx = som.ctx;
+        if (!ctx || this.tocando) return;
+        if (!this.saida) {
+            this.saida = ctx.createGain();
+            this.saida.gain.value = 0;
+            this.saida.connect(som.saida);
+            const amostras = ctx.sampleRate;
+            this.ruido = ctx.createBuffer(1, amostras, ctx.sampleRate);
+            const dados = this.ruido.getChannelData(0);
+            for (let i = 0; i < amostras; i++) dados[i] = Math.random() * 2 - 1;
+        }
+        if (recomecar) this.passo = 0;
+        this.tocando = true;
+        this.proximoTempo = ctx.currentTime + 0.06;
+        this.saida.gain.cancelScheduledValues(ctx.currentTime);
+        this.saida.gain.setTargetAtTime(0.55, ctx.currentTime, 0.15);
+        this.temporizador = setInterval(() => this.agendar(), 25);
+    },
+    parar(suavizar = 0.12) {
+        if (!this.tocando) return;
+        this.tocando = false;
+        clearInterval(this.temporizador);
+        this.saida.gain.cancelScheduledValues(som.ctx.currentTime);
+        this.saida.gain.setTargetAtTime(0, som.ctx.currentTime, suavizar);
+    },
+    // Acompanha a aceleracao do jogo, sem passar de 1.5x o andamento inicial.
+    definirVelocidade(velocidade) {
+        this.bpm = 112 * Math.min(1.5, 1 + (velocidade - 1) * 0.25);
+    },
+    agendar() {
+        const ctx = som.ctx;
+        // Depois de a aba ficar em segundo plano, nao despeja as notas atrasadas de uma vez.
+        if (this.proximoTempo < ctx.currentTime - 0.05) this.proximoTempo = ctx.currentTime + 0.05;
+        while (this.proximoTempo < ctx.currentTime + 0.15) {
+            if (!som.mudo) this.tocarPasso(this.passo, this.proximoTempo);
+            this.proximoTempo += 30 / this.bpm;
+            this.passo = (this.passo + 1) % trilha.melodia.length;
+        }
+    },
+    nota(midi, inicio, duracao, tipo, volume, filtro = 0) {
+        const ctx = som.ctx;
+        const oscilador = ctx.createOscillator();
+        const ganho = ctx.createGain();
+        oscilador.type = tipo;
+        oscilador.frequency.value = this.frequencia(midi);
+        ganho.gain.setValueAtTime(0.0001, inicio);
+        ganho.gain.exponentialRampToValueAtTime(volume, inicio + 0.012);
+        ganho.gain.exponentialRampToValueAtTime(volume * 0.5, inicio + duracao * 0.5);
+        ganho.gain.exponentialRampToValueAtTime(0.0001, inicio + duracao);
+        let saida = oscilador;
+        if (filtro) {
+            const passaBaixa = ctx.createBiquadFilter();
+            passaBaixa.type = 'lowpass';
+            passaBaixa.frequency.value = filtro;
+            saida = saida.connect(passaBaixa);
+        }
+        saida.connect(ganho).connect(this.saida);
+        oscilador.start(inicio);
+        oscilador.stop(inicio + duracao + 0.02);
+    },
+    batida(inicio, duracao, volume, tipoFiltro, frequencia) {
+        const ctx = som.ctx;
+        const fonte = ctx.createBufferSource();
+        const filtro = ctx.createBiquadFilter();
+        const ganho = ctx.createGain();
+        fonte.buffer = this.ruido;
+        filtro.type = tipoFiltro;
+        filtro.frequency.value = frequencia;
+        ganho.gain.setValueAtTime(volume, inicio);
+        ganho.gain.exponentialRampToValueAtTime(0.0001, inicio + duracao);
+        fonte.connect(filtro).connect(ganho).connect(this.saida);
+        fonte.start(inicio, Math.random() * 0.5, duracao + 0.02);
+    },
+    bumbo(inicio) {
+        const ctx = som.ctx;
+        const oscilador = ctx.createOscillator();
+        const ganho = ctx.createGain();
+        oscilador.frequency.setValueAtTime(150, inicio);
+        oscilador.frequency.exponentialRampToValueAtTime(45, inicio + 0.12);
+        ganho.gain.setValueAtTime(0.22, inicio);
+        ganho.gain.exponentialRampToValueAtTime(0.0001, inicio + 0.14);
+        oscilador.connect(ganho).connect(this.saida);
+        oscilador.start(inicio);
+        oscilador.stop(inicio + 0.16);
+    },
+    tocarPasso(passo, inicio) {
+        const colcheia = 30 / this.bpm;
+        const compasso = Math.floor(passo / 8);
+        const tempo = passo % 8;
+        const acorde = trilha.acordes[compasso];
+        // A nota dura ate a proxima nota da melodia, no maximo 4 colcheias.
+        const nota = trilha.melodia[passo];
+        if (nota) {
+            let espera = 1;
+            while (espera < 4 && !trilha.melodia[(passo + espera) % trilha.melodia.length]) espera++;
+            this.nota(nota, inicio, espera * colcheia * 0.9, 'square', 0.035, 2200);
+        }
+        const intervalo = trilha.baixo[tempo];
+        if (intervalo !== null) this.nota(acorde[0] - 12 + intervalo, inicio, colcheia * 1.6, 'triangle', 0.16);
+        // Acordes curtos no contratempo, como um violao abafado.
+        if (tempo === 2 || tempo === 6) {
+            acorde.forEach((midi) => this.nota(midi + 12, inicio, colcheia * 0.9, 'triangle', 0.028));
+        }
+        if (tempo === 0 || tempo === 4) this.bumbo(inicio);
+        if (tempo === 2 || tempo === 6) this.batida(inicio, 0.1, 0.07, 'bandpass', 1800);
+        if (tempo % 2 === 1) this.batida(inicio, 0.03, 0.03, 'highpass', 7000);
+    }
+};
+
+// O cenario em SVG demora alguns segundos para ser rasterizado; mostra o progresso.
+function criarTelaCarregamento(cena) {
+    // No preload a camera ainda nao tem zoom: as medidas seguem o tamanho real do canvas.
+    const e = escalaRenderizacao;
+    const x = cena.scale.width / 2;
+    const y = cena.scale.height / 2;
+    const itens = [
+        cena.add.rectangle(x, y, cena.scale.width, cena.scale.height, 0x233c24),
+        cena.add.text(x, y - 50 * e, 'Granulando', {
+            resolution: 2, fontFamily: 'Arial', fontSize: 30 * e + 'px', fontStyle: 'bold',
+            color: corTexto, stroke: '#1a0e08', strokeThickness: 6 * e
+        }).setOrigin(0.5),
+        cena.add.rectangle(x, y + 10 * e, 240 * e, 16 * e, 0x1a2a1a).setStrokeStyle(2 * e, 0xffe1a6),
+        cena.add.text(x, y + 44 * e, 'Preparando a floresta...', {
+            resolution: 2, fontFamily: 'Arial', fontSize: 14 * e + 'px', color: '#f4ddc9'
+        }).setOrigin(0.5)
+    ];
+    const barra = cena.add.rectangle(x - 116 * e, y + 10 * e, 232 * e, 8 * e, 0xffd24a)
+        .setOrigin(0, 0.5).setScale(0, 1);
+    itens.push(barra);
+    // Os recortes do cenario entram na fila no meio do caminho; a barra nunca volta.
+    const aoProgredir = (progresso) => barra.setScale(Math.max(barra.scaleX, progresso), 1);
+    cena.load.on('progress', aoProgredir);
+    cena.load.once('complete', () => {
+        cena.load.off('progress', aoProgredir);
+        itens.forEach((item) => item.destroy());
+    });
+}
+
 function preload() {
-    // Preserva o SVG inteiro dentro de cada recorte, com bordas sobrepostas.
-    if (!this.textures.exists('cenario_0')) {
-        this.load.once('filecomplete-text-cenarioSVG', (chave, tipo, svg) => {
-            const documento = new DOMParser().parseFromString(svg, 'image/svg+xml');
-            const raiz = documento.documentElement;
-            const [x, y, largura, altura] = raiz.getAttribute('viewBox').split(/[ ,]+/).map(Number);
-            raiz.setAttribute('x', x);
-            raiz.setAttribute('y', y);
-            raiz.setAttribute('width', largura);
-            raiz.setAttribute('height', altura);
-            const original = new XMLSerializer().serializeToString(raiz);
-            const unidadesPorPixel = altura / texturaCenario.altura;
-            const quantidade = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
-            for (let i = 0; i < quantidade; i++) {
-                const inicio = i * texturaCenario.alturaFaixa;
-                const alturaTrecho = Math.min(texturaCenario.alturaFaixa,
-                    texturaCenario.altura - inicio) + texturaCenario.margem * 2;
-                const topo = y + (inicio - texturaCenario.margem) * unidadesPorPixel;
-                // O pixel extra evita linhas vazias na filtragem durante o zoom.
-                const trecho = `<svg xmlns="http://www.w3.org/2000/svg"
-                    width="${texturaCenario.largura}" height="${alturaTrecho}"
-                    viewBox="${x} ${topo} ${largura} ${alturaTrecho * unidadesPorPixel}"
-                    preserveAspectRatio="none">${original}</svg>`;
-                const url = URL.createObjectURL(new Blob([trecho], { type: 'image/svg+xml' }));
-                this.load.once('complete', () => URL.revokeObjectURL(url));
-                this.load.svg('cenario_' + i, url);
-            }
-        });
-        this.load.text('cenarioSVG', 'assets/Cenario Jogo.svg');
+    if (!this.textures.exists('cenario_0')) criarTelaCarregamento(this);
+    // Faixas do cenario ja desenhadas a partir de assets/Cenario Jogo 1.svg por
+    // ferramentas/gerar-cenario.html, com as emendas do tronco suavizadas.
+    // Carregar o SVG de 12 MB direto era lento demais no celular.
+    const quantidadeFaixas = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
+    for (let i = 0; i < quantidadeFaixas; i++) {
+        this.load.image('cenario_' + i, `assets/cenario/cenario-${i}.webp`);
     }
     this.load.svg('troncoLiso', 'assets/tronco liso.svg');
     this.load.svg('troncoRachado', 'assets/tronco rachado.svg');
@@ -82,126 +411,266 @@ function preload() {
     this.load.image('moeda', 'assets/moeda-jogo.png');
     this.load.svg('moedaDourada', 'assets/granulado-dourado.svg');
     this.load.image('introducao', 'assets/inicio2.png');
+    this.load.image('historia', 'assets/historia.webp');
+    // Recorte com fundo transparente de assets/guaxinim-original.webp.
+    this.load.image('guaxinim', 'assets/guaxinim.png');
+    // Versao reduzida e com alfa solido de assets/chao-original.webp.
+    this.load.image('chao', 'assets/chao.webp');
 }
 
 function create(data = {}) {
-    this.cache.text.remove('cenarioSVG');
     this.cameras.main.setOrigin(0, 0).setZoom(escalaRenderizacao);
+    criarTexturasEfeitos(this);
     this.iniciado = false;
     this.iniciando = false;
     this.morreu = false;
+    this.pausado = false;
+    this.hud = null;
     this.totalTroncos = 0;
     this.proximoGranuladoDourado = Phaser.Math.Between(18, 30);
     this.contador = 0;
     this.totalMoedas = 0;
     this.tempoMoedas = 0;
+    this.comboGranulado = 0;
+    this.ultimoGranulado = -Infinity;
+    this.alturaMax = 0;
+    this.recorde = lerRecorde();
+    this.passouRecorde = false;
+    this.vendoHistoria = false;
+    // Numero do tronco mais alto em que o gato ja pousou; o guaxinim foge a partir dele.
+    this.ultimoTronco = 0;
     this.moedas = this.physics.add.staticGroup();
     this.velocidadeJogo = 1;
+    this.sombraGato = null;
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
     const cenarioFundo = this.add.container(config.width / 2, config.height)
         .setScrollFactor(0).setDepth(-2);
     const quantidadeFaixas = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
     for (let i = 0; i < quantidadeFaixas; i++) {
-        const y = i * texturaCenario.alturaFaixa - texturaCenario.altura - texturaCenario.margem;
-        cenarioFundo.add(this.add.image(0, y, 'cenario_' + i)
+        const inicio = i * texturaCenario.alturaFaixa;
+        const altura = Math.min(texturaCenario.alturaFaixa, texturaCenario.altura - inicio);
+        const textura = this.textures.get('cenario_' + i);
+        if (!textura.has('miolo')) {
+            textura.add('miolo', 0, 0, texturaCenario.margem, texturaCenario.largura, altura);
+        }
+        // As faixas se encostam; a margem fica fora da area visivel do frame.
+        const y = inicio - texturaCenario.altura;
+        cenarioFundo.add(this.add.image(0, y, 'cenario_' + i, 'miolo')
             .setOrigin(enquadramentoCenario.centroTronco / texturaCenario.largura, 0));
     }
     this.cenario = {
         base: cenarioFundo, deslocamento: 0, alvo: 0,
         larguraTronco: enquadramentoCenario.abertura,
-        alturaInicialGato: 532, paralaxe: 0.12
+        alturaInicialGato: alturaChao - 40, paralaxe: 0.12
     };
-    // O topo do chao fica em 572; metade da altura do gato e 40.
-    this.caixa = this.add.image(config.width / 2, 532, 'mascote_1').setDisplaySize(78, 80);
+    criarFolhas(this, -1, 1500);
+    // Metade da altura do gato e 40: ele comeca com os pes na grama.
+    // A caixa e so o corpo fisico; o gato visivel acompanha ela com
+    // deformacao e inclinacao, sem mexer na area de colisao.
+    this.caixa = this.add.image(config.width / 2, alturaChao - 40, 'mascote_1')
+        .setDisplaySize(78, 80).setVisible(false);
+    this.gato = this.add.image(this.caixa.x, this.caixa.y + 40, 'mascote_1')
+        .setOrigin(0.5, 1).setDepth(5);
+    this.deformacao = { x: 1, y: 1 };
     atualizarCenario(this, 0);
     this.physics.add.existing(this.caixa);
     this.caixa.body.setSize(1200, 1400);
+    // Roda depois da fisica, para o gato nunca ficar um quadro atrasado.
+    const sincronizar = (tempo, delta) => sincronizarGato(this, delta);
+    this.events.on('postupdate', sincronizar);
+    sincronizarGato(this, 0);
     this.cursors = this.input.keyboard.createCursorKeys();
+    this.teclasLaterais = this.input.keyboard.addKeys('A,D');
+    configurarComandoSecreto(this);
+    configurarAtalhos(this);
 
     this.plataformas = this.physics.add.staticGroup();
-    criarPlataforma(this, 180, 580, 360, true);
+    // O corpo invisivel do chao tem 16 px: o centro fica 8 px abaixo da grama.
+    criarPlataforma(this, 180, alturaChao + 8, 360, true);
+    this.add.image(180, alturaChao, 'chao').setOrigin(0.5, superficieChao)
+        .setDisplaySize(config.width, config.width * 229 / 900).setDepth(0.5);
+    // Sombra macia que aparece quando o gato esta perto do chao.
+    this.sombraGato = this.add.ellipse(0, alturaChao, 46, 10, 0x2a160d).setDepth(0.6).setAlpha(0);
+    criarBorboletas(this);
     this.ultimaPlataformaX = config.width / 2;
-    this.ultimaPlataformaY = 580;
+    this.ultimaPlataformaY = alturaChao + 8;
     this.cameras.main.setScroll(0, 0);
     gerarPlataformas(this);
+    desenharLinhaRecorde(this);
 
     this.physics.add.collider(this.caixa, this.plataformas, pular, function (caixa) {
         // Deixa o gato atravessar as plataformas quando estiver subindo.
         return !caixa.quedaSemVolta && caixa.body.velocity.y > 0;
     });
-
-    // Texturas de texto em alta resolucao para manter nitidez com o zoom de 2x.
-    this.textoMoedas = this.add.text(config.width / 2, 16, 'Granulados: 0', {
-        resolution: 4,
-        fontFamily: 'Arial', fontSize: '14px', fontStyle: 'bold',
-        color: '#ffe1a6', padding: { x: 8, y: 5 }
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(10);
-    this.fundoContador = this.add.graphics().setScrollFactor(0).setDepth(9);
-    atualizarFundoContador(this);
     this.physics.add.overlap(this.caixa, this.moedas, coletarMoeda);
+
+    this.efeitos = {
+        poeira: this.add.particles(0, 0, 'fx_ponto', {
+            emitting: false, lifespan: 380,
+            speed: { min: 25, max: 75 }, angle: { min: 190, max: 350 },
+            scale: { start: 0.5, end: 0 }, alpha: { start: 0.75, end: 0 },
+            tint: [0xf1dcbc, 0xd9b38a, 0xc49468]
+        }).setDepth(4),
+        lascas: this.add.particles(0, 0, 'fx_lasca', {
+            emitting: false, lifespan: 750,
+            speed: { min: 70, max: 190 }, angle: { min: 200, max: 340 },
+            gravityY: 700, rotate: { start: 0, end: 540 },
+            scale: { start: 0.8, end: 0.45 }, alpha: { start: 1, end: 0 },
+            tint: [0x8a5a35, 0x5b3520, 0xc58b55, 0x3f2219]
+        }).setDepth(3),
+        brilho: this.add.particles(0, 0, 'fx_estrela', {
+            emitting: false, lifespan: 480,
+            speed: { min: 50, max: 150 }, rotate: { start: 0, end: 180 },
+            scale: { start: 0.7, end: 0 }, blendMode: 'ADD',
+            tint: [0xfff4b0, 0xffe165, 0xffffff]
+        }).setDepth(6),
+        // Pedacinhos de grama quando o gato pula do chao.
+        grama: this.add.particles(0, 0, 'fx_folha', {
+            emitting: false, lifespan: 550,
+            speed: { min: 50, max: 120 }, angle: { min: 205, max: 335 },
+            gravityY: 500, rotate: { start: 0, end: 360 },
+            scale: { start: 0.45, end: 0.25 }, alpha: { start: 1, end: 0 },
+            tint: [0x7cc242, 0x9fd653, 0x5ea832, 0xb8e05a]
+        }).setDepth(4),
+        // Granulados escapando do saco roubado.
+        granulos: this.add.particles(0, 0, 'moeda', {
+            emitting: false, lifespan: 1100,
+            speedX: { min: -50, max: 50 }, speedY: { min: -60, max: 10 },
+            gravityY: 650, rotate: { start: 0, end: 360 },
+            scale: { start: 0.022, end: 0.018 }, alpha: { start: 1, end: 0 }
+        }).setDepth(1.6)
+    };
+    criarGuaxinim(this);
+
+    // Retoma a partida com um toque em qualquer lugar quando estiver pausada.
+    this.input.on('pointerdown', () => {
+        som.iniciar();
+        if (this.pausado && this.time.now - this.pausadoEm > 150) alternarPausa(this, false);
+    });
+    // Pausa sozinho quando o jogador troca de aba ou de aplicativo.
+    const aoOcultar = () => alternarPausa(this, true);
+    this.game.events.on('hidden', aoOcultar);
+    this.events.once('shutdown', () => {
+        this.events.off('postupdate', sincronizar);
+        this.game.events.off('hidden', aoOcultar);
+    });
 
     // Arte vertical inteira, com as areas de toque alinhadas as novas placas.
     const escalaInicio = config.width / 941;
     const fundoInicio = this.add.rectangle(180, 320, 360, 640, 0x233c24);
     const arteInicio = this.add.image(180, 320, 'introducao').setScale(escalaInicio);
-    const dicaInicio = this.add.text(180, 586, 'Segure nos lados para mover o gato\nou use as setas do teclado.', {
-        resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#ffe1a6',
+    const dicaInicio = this.add.text(180, 586,
+        'Segure nos lados para mover o gato', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: corTexto,
         align: 'center', lineSpacing: 5, backgroundColor: '#233c24',
         padding: { x: 8, y: 6 }
     }).setOrigin(0.5);
+    const itensInicio = [fundoInicio, arteInicio, dicaInicio];
+    if (this.recorde.granulados > 0 || this.recorde.troncos > 0) {
+        itensInicio.push(this.add.text(180, 532,
+            `Recorde: ${contar(this.recorde.granulados, 'granulado')} · ${contar(this.recorde.troncos, 'tronco')}`, {
+                resolution: 4, fontFamily: 'Arial', fontSize: '13px', fontStyle: 'bold',
+                color: '#382017', backgroundColor: '#ffd24a', padding: { x: 10, y: 5 }
+            }).setOrigin(0.5));
+    }
     const zonaMenu = (y) => this.add.zone(180, 320 + (y - 1672 / 2) * escalaInicio,
         470 * escalaInicio, 106 * escalaInicio).setInteractive({ useHandCursor: true });
     const botaoInicio = zonaMenu(760);
     const botaoConfiguracoes = zonaMenu(877);
     const botaoSair = zonaMenu(990);
-    this.telaInicio = this.add.container(0, 0,
-        [fundoInicio, arteInicio, dicaInicio, botaoInicio, botaoConfiguracoes, botaoSair])
+    const botoesMenu = [botaoInicio, botaoConfiguracoes, botaoSair];
+    // Folhas caindo por cima da arte deixam o menu vivo.
+    const folhasInicio = criarFolhas(this, 0, 700);
+    this.telaInicio = this.add.container(0, 0, [...itensInicio, folhasInicio, ...botoesMenu])
         .setScrollFactor(0).setDepth(20);
-    const mostrarAvisoInicio = (texto) => {
+    this.tweens.add({
+        targets: dicaInicio, alpha: 0.55, duration: 900,
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+    const mostrarAvisoInicio = (texto, comHistoria = false) => {
         if (this.avisoInicio) return;
-        const fundo = this.add.rectangle(180, 320, 336, 230, 0x233c24)
+        som.clique();
+        const fundo = this.add.rectangle(180, 320, 336, 330, corMadeiraEscura)
             .setStrokeStyle(2, 0xffe1a6);
-        const mensagem = this.add.text(180, 290, texto, {
-            resolution: 4, fontFamily: 'Arial', fontSize: '16px', color: '#ffe1a6',
+        const mensagem = this.add.text(180, 272, texto, {
+            resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: corTexto,
             align: 'center', wordWrap: { width: 300 }, lineSpacing: 6
         }).setOrigin(0.5);
-        const fechar = this.add.text(180, 390, 'VOLTAR', {
-            resolution: 4, fontFamily: 'Arial', fontSize: '18px', color: '#ffffff',
-            backgroundColor: '#634128', padding: { x: 24, y: 12 }
-        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-        botaoInicio.disableInteractive();
-        botaoConfiguracoes.disableInteractive();
-        botaoSair.disableInteractive();
-        this.avisoInicio = this.add.container(0, 0, [fundo, mensagem, fechar]);
-        this.telaInicio.add(this.avisoInicio);
-        fechar.on('pointerup', () => {
+        const estiloBotao = {
+            resolution: 4, fontFamily: 'Arial', fontSize: '17px', fontStyle: 'bold',
+            color: '#ffffff', backgroundColor: '#634128', padding: { x: 20, y: 12 }
+        };
+        const fechar = this.add.text(comHistoria ? 250 : 180, 428, 'VOLTAR', estiloBotao)
+            .setOrigin(0.5).setInteractive({ useHandCursor: true });
+        const itens = [fundo, mensagem, fechar];
+        const fecharAviso = () => {
+            som.clique();
             this.avisoInicio.destroy();
             this.avisoInicio = null;
-            botaoInicio.setInteractive({ useHandCursor: true });
-            botaoConfiguracoes.setInteractive({ useHandCursor: true });
-            botaoSair.setInteractive({ useHandCursor: true });
-        });
+            botoesMenu.forEach((botao) => botao.setInteractive({ useHandCursor: true }));
+        };
+        if (comHistoria) {
+            const historia = this.add.text(112, 428, 'HISTÓRIA',
+                { ...estiloBotao, backgroundColor: '#8a5a2b' })
+                .setOrigin(0.5).setInteractive({ useHandCursor: true });
+            historia.on('pointerup', () => {
+                fecharAviso();
+                mostrarHistoria(this, () => {}, 'Toque para voltar ao menu');
+            });
+            itens.push(historia);
+        }
+        botoesMenu.forEach((botao) => botao.disableInteractive());
+        this.avisoInicio = this.add.container(0, 0, itens).setAlpha(0);
+        this.telaInicio.add(this.avisoInicio);
+        this.tweens.add({ targets: this.avisoInicio, alpha: 1, duration: 160 });
+        fechar.on('pointerup', fecharAviso);
     };
     this.avisoInicio = null;
     botaoConfiguracoes.on('pointerup', () => mostrarAvisoInicio(
-        'CONTROLES\n\nSegure na metade esquerda ou direita da tela para mover o gato.\nNo teclado, use as setas.\n\nOs saltos são automáticos.'));
+        'CONTROLES\n\nSegure na metade esquerda ou direita da tela para mover o gato.\n\n' +
+        'Os saltos são automáticos.\n\n' +
+        'Os botões no alto da tela pausam o jogo e ligam ou desligam o som.', true));
     botaoSair.on('pointerup', () => mostrarAvisoInicio(
         'Para sair do jogo, feche esta aba do navegador.'));
     this.physics.pause();
 
-    const comecar = () => {
-        if (this.iniciado || this.iniciando || this.avisoInicio) return;
-        this.iniciando = true;
-        this.telaInicio.destroy();
-        this.input.keyboard.off('keydown-SPACE', comecar);
-        this.input.keyboard.off('keydown-ENTER', comecar);
+    const iniciarPartida = () => {
+        criarHud(this);
+        musica.definirVelocidade(1);
+        musica.tocar();
         // Primeiro apresenta a aproximacao; depois libera o primeiro salto.
         enquadrarCenario(this, enquadramentoCenario.jogo,
             data.reiniciar ? 0 : enquadramentoCenario.duracao, () => {
                 this.iniciando = false;
                 this.iniciado = true;
                 this.physics.resume();
+                provocarGuaxinim(this);
             });
+    };
+    const comecar = () => {
+        if (this.iniciado || this.iniciando || this.avisoInicio || this.vendoHistoria) return;
+        som.iniciar();
+        this.iniciando = true;
+        botoesMenu.forEach((botao) => botao.disableInteractive());
+        this.input.keyboard.off('keydown-SPACE', comecar);
+        this.input.keyboard.off('keydown-ENTER', comecar);
+        const telaInicio = this.telaInicio;
+        if (data.reiniciar) {
+            telaInicio.destroy();
+            iniciarPartida();
+            return;
+        }
+        som.clique();
+        this.tweens.add({
+            targets: telaInicio, alpha: 0, duration: 280, ease: 'Quad.easeOut',
+            onComplete: () => telaInicio.destroy()
+        });
+        // Na primeira partida, os quadrinhos contam por que o gato esta subindo.
+        if (lerArmazenado(chaveHistoria, false) === true) {
+            iniciarPartida();
+        } else {
+            mostrarHistoria(this, iniciarPartida, 'Toque para começar!');
+        }
     };
     // Somente a placa INICIAR comeca a partida por toque.
     botaoInicio.on('pointerup', comecar);
@@ -210,26 +679,709 @@ function create(data = {}) {
     if (data.reiniciar) comecar();
 }
 
+// Texturas pequenas das particulas, desenhadas em 2x para ficarem nitidas com o zoom.
+function criarTexturasEfeitos(cena) {
+    if (cena.textures.exists('fx_ponto')) return;
+    const g = cena.make.graphics({ add: false });
+    g.fillStyle(0xffffff).fillCircle(8, 8, 8);
+    g.generateTexture('fx_ponto', 16, 16);
+    g.clear().fillStyle(0xffffff).fillRoundedRect(0, 0, 14, 6, 2);
+    g.generateTexture('fx_lasca', 14, 6);
+    const pontas = [];
+    for (let i = 0; i < 8; i++) {
+        const raio = i % 2 === 0 ? 8 : 2.5;
+        const angulo = i * Math.PI / 4 - Math.PI / 2;
+        pontas.push({ x: 8 + Math.cos(angulo) * raio, y: 8 + Math.sin(angulo) * raio });
+    }
+    g.clear().fillStyle(0xffffff).fillPoints(pontas, true);
+    g.generateTexture('fx_estrela', 16, 16);
+    g.clear().fillStyle(0xffffff).fillEllipse(9, 5, 18, 9);
+    g.lineStyle(1, 0x000000, 0.25).lineBetween(2, 5, 16, 5);
+    g.generateTexture('fx_folha', 18, 10);
+    // Saquinho de granulado roubado, no estilo da embalagem dos quadrinhos.
+    g.clear().fillStyle(0x2a1512).fillRoundedRect(0, 3, 40, 49, 6);
+    g.fillStyle(0xe8cc9c).fillRoundedRect(3, 6, 34, 43, 4);
+    g.fillStyle(0x1e1e1e).fillRect(3, 6, 34, 11);
+    g.fillStyle(0x2a1512);
+    for (let x = 1; x < 38; x += 6) g.fillTriangle(x, 4, x + 3, 0, x + 6, 4);
+    g.fillStyle(0xc9a06a).fillRoundedRect(9, 22, 22, 13, 3);
+    g.fillStyle(0xf3dcb0);
+    [[13, 26], [19, 25], [25, 27], [15, 31], [22, 31], [28, 31]].forEach(([x, y]) => g.fillCircle(x, y, 2));
+    g.fillStyle(0x2f6b3a);
+    for (let x = 3; x < 36; x += 7) g.fillTriangle(x, 49, x + 3.5, 40, x + 7, 49);
+    g.generateTexture('fx_saco', 40, 52);
+    // Borboleta branca com contorno escuro; a cor vem do tint.
+    g.clear().fillStyle(0x3b1a0e);
+    g.fillEllipse(8, 8, 16, 14).fillEllipse(24, 8, 16, 14).fillEllipse(9, 18, 12, 10).fillEllipse(23, 18, 12, 10);
+    g.fillStyle(0xffffff);
+    g.fillEllipse(8, 8, 12, 10).fillEllipse(24, 8, 12, 10).fillEllipse(9, 18, 8, 6).fillEllipse(23, 18, 8, 6);
+    g.fillStyle(0x3b1a0e).fillRoundedRect(14.5, 3, 3, 20, 1.5);
+    g.generateTexture('fx_borboleta', 32, 24);
+    g.destroy();
+}
+
+// Duas borboletas passeando pelo gramado do comeco da subida.
+function criarBorboletas(cena) {
+    [[60, 0xffd24a], [300, 0xf6a6c8]].forEach(([x, cor], i) => {
+        const borboleta = cena.add.image(x, alturaChao - 50, 'fx_borboleta')
+            .setTint(cor).setScale(0.7).setDepth(6);
+        cena.tweens.add({
+            targets: borboleta, scaleX: 0.15, duration: 110,
+            yoyo: true, repeat: -1, delay: i * 70
+        });
+        const voar = () => {
+            // Depois que a camera sobe, a borboleta fica para tras e para de voar.
+            if (borboleta.y > cena.cameras.main.scrollY + config.height + 80) {
+                cena.tweens.killTweensOf(borboleta);
+                borboleta.destroy();
+                return;
+            }
+            const destinoX = Phaser.Math.Between(24, 336);
+            borboleta.setFlipX(destinoX < borboleta.x);
+            cena.tweens.add({
+                targets: borboleta, x: destinoX, y: alturaChao - Phaser.Math.Between(18, 110),
+                duration: Phaser.Math.Between(1600, 2800), ease: 'Sine.easeInOut', onComplete: voar
+            });
+        };
+        voar();
+    });
+}
+
+function criarFolhas(cena, profundidade, intervalo) {
+    return cena.add.particles(0, 0, 'fx_folha', {
+        x: { min: -10, max: 370 }, y: -12,
+        lifespan: 16000, frequency: intervalo,
+        speedY: { min: 40, max: 70 }, speedX: { min: -30, max: 30 },
+        rotate: { start: 0, end: 720 }, scale: { min: 0.45, max: 0.8 }, alpha: 0.85,
+        tint: [0x7cae3a, 0x9fc94a, 0x5d8f2b, 0xc9b84a]
+    }).setScrollFactor(0).setDepth(profundidade);
+}
+
+function configurarAtalhos(cena) {
+    const tecla = (evento) => {
+        som.iniciar();
+        if (evento.repeat) return;
+        if (evento.code === 'KeyP' || evento.code === 'Escape') {
+            alternarPausa(cena);
+        } else if (evento.code === 'KeyM') {
+            som.alternarMudo();
+            if (cena.hud) cena.hud.botaoSom.desenhar();
+        }
+    };
+    cena.input.keyboard.on('keydown', tecla);
+    cena.events.once('shutdown', () => cena.input.keyboard.off('keydown', tecla));
+}
+
+function criarHud(cena) {
+    const estilo = {
+        resolution: 4, fontFamily: 'Arial', fontSize: '15px', fontStyle: 'bold', color: corTexto
+    };
+    const fundo = cena.add.graphics();
+    const icone = cena.add.image(0, 0, 'moeda').setScale(24 / 808);
+    const texto = cena.add.text(0, 1, '0', estilo).setOrigin(0, 0.5);
+    const granulados = cena.add.container(180, 24, [fundo, icone, texto]);
+    const fundoTroncos = cena.add.graphics();
+    const textoTroncos = cena.add.text(12, 1, '', { ...estilo, fontSize: '12px' }).setOrigin(0, 0.5);
+    const troncos = cena.add.container(10, 24, [fundoTroncos, textoTroncos]);
+    [granulados, troncos].forEach((item) => item.setScrollFactor(0).setDepth(10));
+    const botaoPausa = criarBotaoHud(cena, 300, desenharIconePausa, () => alternarPausa(cena));
+    const botaoSom = criarBotaoHud(cena, 336, desenharIconeSom, () => som.alternarMudo());
+    cena.hud = { granulados, fundo, icone, texto, troncos, fundoTroncos, textoTroncos, botaoSom };
+    atualizarHud(cena);
+    [granulados, troncos, botaoPausa.grafico, botaoSom.grafico].forEach((item, i) => {
+        item.setAlpha(0);
+        item.y -= 20;
+        cena.tweens.add({
+            targets: item, alpha: 1, y: 24, duration: 350,
+            delay: 400 + i * 70, ease: 'Back.easeOut'
+        });
+    });
+}
+
+function criarBotaoHud(cena, x, desenharIcone, acao) {
+    const grafico = cena.add.graphics({ x, y: 24 }).setScrollFactor(0).setDepth(12);
+    const desenhar = () => {
+        grafico.clear().fillStyle(corMadeiraEscura, 0.92).fillCircle(0, 0, 14)
+            .lineStyle(1.5, 0xffe1a6, 0.4).strokeCircle(0, 0, 14);
+        desenharIcone(grafico);
+    };
+    const zona = cena.add.zone(x, 24, 40, 40).setScrollFactor(0).setDepth(12)
+        .setInteractive({ useHandCursor: true });
+    zona.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
+        // Nao deixa o toque no botao retomar a pausa ou reiniciar a partida.
+        evento.stopPropagation();
+        som.iniciar();
+        acao();
+        desenhar();
+        som.clique();
+        cena.tweens.killTweensOf(grafico);
+        grafico.setScale(0.8);
+        cena.tweens.add({ targets: grafico, scale: 1, duration: 220, ease: 'Back.easeOut' });
+    });
+    desenhar();
+    return { grafico, zona, desenhar };
+}
+
+function desenharIconePausa(g) {
+    g.fillStyle(0xffe1a6, 1).fillRoundedRect(-5.5, -6, 4, 12, 1).fillRoundedRect(1.5, -6, 4, 12, 1);
+}
+
+function desenharIconeSom(g) {
+    g.fillStyle(0xffe1a6, 1).fillPoints([
+        { x: -8, y: -3 }, { x: -4, y: -3 }, { x: 1, y: -7 },
+        { x: 1, y: 7 }, { x: -4, y: 3 }, { x: -8, y: 3 }
+    ], true);
+    if (som.mudo) {
+        g.lineStyle(2, 0xff8a6a, 1).lineBetween(4, -4, 9, 4).lineBetween(9, -4, 4, 4);
+        return;
+    }
+    g.lineStyle(1.8, 0xffe1a6, 1);
+    [4.5, 8].forEach((raio) => {
+        g.beginPath();
+        g.arc(1, 0, raio, -0.9, 0.9);
+        g.strokePath();
+    });
+}
+
+function desenharPilula(grafico, x, largura) {
+    grafico.clear().fillStyle(corMadeiraEscura, 0.92).fillRoundedRect(x, -14, largura, 28, 14)
+        .lineStyle(1.5, 0xffe1a6, 0.4).strokeRoundedRect(x, -14, largura, 28, 14);
+}
+
+function atualizarHud(cena) {
+    const hud = cena.hud;
+    if (!hud) return;
+    hud.texto.setText(String(cena.totalMoedas));
+    // Acompanha a largura do texto quando a quantidade de digitos aumenta.
+    const largura = 12 + 24 + 6 + hud.texto.width + 12;
+    const inicio = -largura / 2;
+    hud.icone.setPosition(inicio + 24, 0);
+    hud.texto.x = inicio + 42;
+    desenharPilula(hud.fundo, inicio, largura);
+    hud.textoTroncos.setText('Troncos ' + cena.contador);
+    desenharPilula(hud.fundoTroncos, 0, hud.textoTroncos.width + 24);
+}
+
+function pulsarHud(cena, alvo) {
+    cena.tweens.killTweensOf(alvo);
+    alvo.setScale(1.3).setAlpha(1).setY(24);
+    cena.tweens.add({ targets: alvo, scale: 1, duration: 280, ease: 'Back.easeOut' });
+}
+
+function alternarPausa(cena, pausar = !cena.pausado) {
+    if (!cena.iniciado || cena.morreu || pausar === cena.pausado) return;
+    cena.pausado = pausar;
+    if (!pausar) {
+        cena.telaPausa.destroy();
+        cena.telaPausa = null;
+        cena.physics.resume();
+        cena.tweens.resumeAll();
+        musica.tocar(false);
+        return;
+    }
+    cena.pausadoEm = cena.time.now;
+    cena.physics.pause();
+    cena.tweens.pauseAll();
+    musica.parar();
+    const sombra = cena.add.rectangle(180, 320, 360, 640, 0x160d08, 0.72);
+    const titulo = cena.add.text(180, 290, 'PAUSADO', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '34px', fontStyle: 'bold',
+        color: corTexto, stroke: '#1a0e08', strokeThickness: 6
+    }).setOrigin(0.5);
+    const dica = cena.add.text(180, 345,
+        'Toque na tela para continuar', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: '#f4ddc9',
+        align: 'center', lineSpacing: 4
+    }).setOrigin(0.5);
+    // Fica abaixo dos botoes, para o som continuar acessivel na pausa.
+    cena.telaPausa = cena.add.container(0, 0, [sombra, titulo, dica])
+        .setScrollFactor(0).setDepth(11);
+}
+
+// Faixa curta no meio da tela para eventos da partida.
+function mostrarFaixa(cena, titulo, subtitulo = '', cor = corTexto) {
+    if (cena.faixa) cena.faixa.destroy();
+    const itens = [
+        cena.add.rectangle(180, 0, 360, subtitulo ? 64 : 46, corMadeiraEscura, 0.88),
+        cena.add.text(180, subtitulo ? -10 : 0, titulo, {
+            resolution: 4, fontFamily: 'Arial', fontSize: '24px', fontStyle: 'bold',
+            color: cor, stroke: '#1a0e08', strokeThickness: 5
+        }).setOrigin(0.5)
+    ];
+    if (subtitulo) {
+        itens.push(cena.add.text(180, 17, subtitulo, {
+            resolution: 4, fontFamily: 'Arial', fontSize: '13px', color: '#f4ddc9'
+        }).setOrigin(0.5));
+    }
+    const faixa = cena.add.container(0, 190, itens).setScrollFactor(0).setDepth(15)
+        .setAlpha(0).setScale(1, 0.3);
+    cena.faixa = faixa;
+    cena.tweens.add({ targets: faixa, alpha: 1, scaleY: 1, duration: 220, ease: 'Back.easeOut' });
+    cena.tweens.add({
+        targets: faixa, alpha: 0, y: 170, delay: 1300, duration: 320, ease: 'Quad.easeIn',
+        onComplete: () => {
+            faixa.destroy();
+            if (cena.faixa === faixa) cena.faixa = null;
+        }
+    });
+}
+
+function mostrarPopup(cena, x, y, texto, cor = corTexto, tamanho = 16) {
+    const popup = cena.add.text(x, y, texto, {
+        resolution: 4, fontFamily: 'Arial', fontSize: tamanho + 'px', fontStyle: 'bold',
+        color: cor, stroke: '#2a160d', strokeThickness: 4
+    }).setOrigin(0.5).setDepth(7).setScale(0.6);
+    // Nao deixa o texto sair pelas laterais da tela.
+    popup.x = Phaser.Math.Clamp(x, popup.width / 2 + 6, config.width - popup.width / 2 - 6);
+    cena.tweens.add({ targets: popup, y: y - 34, scale: 1, duration: 260, ease: 'Back.easeOut' });
+    cena.tweens.add({
+        targets: popup, alpha: 0, delay: 420, duration: 260,
+        onComplete: () => popup.destroy()
+    });
+}
+
+// Linha tracejada na altura do melhor resultado salvo.
+function desenharLinhaRecorde(cena) {
+    if (cena.recorde.altura < 80) return;
+    const y = cena.cenario.alturaInicialGato + 40 - cena.recorde.altura;
+    const linha = cena.add.graphics().setDepth(-1).lineStyle(2, 0xffe1a6, 0.8);
+    for (let x = 4; x < config.width - 4; x += 14) linha.lineBetween(x, y, x + 8, y);
+    const rotulo = cena.add.text(config.width - 8, y - 4, 'RECORDE', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '11px', fontStyle: 'bold',
+        color: corTexto, stroke: '#2a160d', strokeThickness: 3
+    }).setOrigin(1, 1).setDepth(-1);
+    cena.linhaRecorde = [linha, rotulo];
+}
+
+function comemorarRecorde(cena) {
+    mostrarFaixa(cena, 'NOVO RECORDE!', 'continue subindo!', '#ffd24a');
+    som.recorde();
+    cena.efeitos.brilho.explode(24, cena.caixa.x, cena.caixa.y);
+    if (cena.linhaRecorde) {
+        cena.tweens.add({ targets: cena.linhaRecorde, alpha: 0.25, duration: 600 });
+    }
+}
+
+// Apresenta a pagina de quadrinhos um quadro por vez, com legenda digitada.
+function mostrarHistoria(cena, aoTerminar, textoFinal) {
+    const textura = cena.textures.get('historia');
+    quadrosHistoria.forEach((quadro, i) => {
+        // Uma pequena margem interna esconde a calha branca entre os quadros.
+        if (!textura.has('quadro' + i)) {
+            textura.add('quadro' + i, 0, quadro.x + 3, quadro.y + 3,
+                quadro.largura - 6, quadro.altura - 6);
+        }
+    });
+    cena.vendoHistoria = true;
+    const fixo = (objeto, profundidade) => objeto.setScrollFactor(0).setDepth(profundidade);
+    const fundo = fixo(cena.add.rectangle(180, 320, 360, 640, 0x1f130d), 40).setAlpha(0);
+    const pontos = fixo(cena.add.graphics(), 41);
+    const toque = fixo(cena.add.zone(180, 320, 360, 640), 41).setInteractive();
+    const pular = fixo(cena.add.text(348, 26, 'PULAR  »', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '13px', fontStyle: 'bold',
+        color: corTexto, backgroundColor: '#382017', padding: { x: 12, y: 7 }
+    }), 42).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
+    const fundoLegenda = fixo(cena.add.graphics(), 41);
+    const legenda = fixo(cena.add.text(180, 0, '', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '16px', fontStyle: 'bold',
+        color: '#3b2418', align: 'center', wordWrap: { width: 288 }, lineSpacing: 4
+    }), 42).setOrigin(0.5).setFixedSize(288, 0);
+    const dica = fixo(cena.add.text(180, 604, 'Toque para continuar  ›', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#f4ddc9'
+    }), 41).setOrigin(0.5);
+    const objetos = [fundo, pontos, toque, pular, fundoLegenda, legenda, dica];
+    cena.tweens.add({ targets: fundo, alpha: 1, duration: 250 });
+    cena.tweens.add({
+        targets: dica, alpha: 0.5, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    let indice = -1;
+    let grupo = null;
+    let digitacao = null;
+    let terminou = false;
+
+    const desenharPontos = () => {
+        pontos.clear();
+        const inicioX = 180 - (quadrosHistoria.length - 1) * 8;
+        quadrosHistoria.forEach((quadro, i) => {
+            pontos.fillStyle(i === indice ? 0xffd24a : 0xffe1a6, i === indice ? 1 : 0.35)
+                .fillCircle(inicioX + i * 16, 26, i === indice ? 5 : 3.5);
+        });
+    };
+    const completarLegenda = () => {
+        if (!digitacao) return;
+        digitacao.remove();
+        digitacao = null;
+        legenda.setText(legenda.textoCompleto);
+    };
+    const escreverLegenda = (texto) => {
+        // Quebra as linhas antes de digitar, para as palavras nao pularem de linha.
+        const linhas = legenda.getWrappedText(texto).join('\n');
+        legenda.textoCompleto = linhas;
+        legenda.setText(linhas);
+        const altura = legenda.height + 26;
+        fundoLegenda.clear()
+            .fillStyle(0xfff4d6, 1).fillRoundedRect(24, 452, 312, altura, 12)
+            .lineStyle(3, 0x3b2418, 1).strokeRoundedRect(24, 452, 312, altura, 12);
+        legenda.y = 452 + altura / 2;
+        legenda.setText('');
+        // Conta pelo tempo, e nao por quadro, para digitar igual em qualquer aparelho.
+        const inicio = cena.time.now;
+        digitacao = cena.time.addEvent({
+            delay: 16, loop: true,
+            callback: () => {
+                const letras = Math.min(linhas.length, Math.floor((cena.time.now - inicio) * 0.05));
+                legenda.setText(linhas.slice(0, letras));
+                if (letras >= linhas.length) completarLegenda();
+            }
+        });
+    };
+    const efeitoQuadro = (efeito) => {
+        const depois = (atraso, acao) => cena.time.delayedCall(atraso, () => {
+            if (!terminou) acao();
+        });
+        if (efeito === 'feliz') som.feliz();
+        else if (efeito === 'suspense') som.suspense();
+        else if (efeito === 'risada') som.risada();
+        else if (efeito === 'final') som.nivel();
+        else if (efeito === 'fuga') [0, 180, 360].forEach((atraso) => depois(atraso, () => som.guaxinimPulo()));
+        else if (efeito === 'roubo') {
+            depois(250, () => {
+                som.quebra();
+                som.risada();
+                cena.cameras.main.shake(260, 0.012);
+            });
+        }
+    };
+    const mostrarQuadro = (novo) => {
+        indice = novo;
+        desenharPontos();
+        som.virarPagina();
+        if (grupo) {
+            const antigo = grupo;
+            cena.tweens.killTweensOf(antigo);
+            cena.tweens.add({
+                targets: antigo, x: -160, angle: -6, alpha: 0, duration: 300,
+                ease: 'Quad.easeIn', onComplete: () => antigo.destroy()
+            });
+        }
+        const frame = textura.get('quadro' + novo);
+        const escala = Math.min(330 / frame.width, 330 / frame.height);
+        const largura = frame.width * escala;
+        const altura = frame.height * escala;
+        // Moldura clara com sombra, como um quadrinho impresso.
+        const moldura = cena.add.graphics()
+            .fillStyle(0x000000, 0.35)
+            .fillRoundedRect(-largura / 2 - 1, -altura / 2, largura + 12, altura + 12, 10)
+            .fillStyle(0xfff4d6, 1)
+            .fillRoundedRect(-largura / 2 - 6, -altura / 2 - 6, largura + 12, altura + 12, 10);
+        const imagem = cena.add.image(0, 0, 'historia', 'quadro' + novo).setScale(escala);
+        const atual = cena.add.container(520, 262, [moldura, imagem])
+            .setScrollFactor(0).setDepth(41).setAngle(6).setAlpha(0);
+        grupo = atual;
+        cena.tweens.add({
+            targets: atual, x: 180, angle: 0, alpha: 1, duration: 420, ease: 'Back.easeOut',
+            onComplete: () => cena.tweens.add({
+                targets: atual, scale: 1.025, duration: 2400,
+                yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+            })
+        });
+        escreverLegenda(quadrosHistoria[novo].texto);
+        if (novo === quadrosHistoria.length - 1) dica.setText(textoFinal);
+        efeitoQuadro(quadrosHistoria[novo].efeito);
+    };
+    const encerrar = () => {
+        if (terminou) return;
+        terminou = true;
+        completarLegenda();
+        salvarArmazenado(chaveHistoria, true);
+        cena.input.keyboard.off('keydown', tecla);
+        toque.disableInteractive();
+        pular.disableInteractive();
+        const todos = [...objetos, grupo].filter(Boolean);
+        cena.tweens.killTweensOf(todos);
+        cena.tweens.add({
+            targets: todos, alpha: 0, duration: 260,
+            onComplete: () => todos.forEach((objeto) => objeto.destroy())
+        });
+        // Libera o menu um instante depois, para a mesma tecla nao iniciar a partida.
+        cena.time.delayedCall(60, () => {
+            cena.vendoHistoria = false;
+        });
+        aoTerminar();
+    };
+    const avancar = () => {
+        if (terminou) return;
+        if (digitacao) {
+            completarLegenda();
+        } else if (indice < quadrosHistoria.length - 1) {
+            mostrarQuadro(indice + 1);
+        } else {
+            encerrar();
+        }
+    };
+    const tecla = (evento) => {
+        if (evento.repeat) return;
+        if (evento.code === 'Escape') encerrar();
+        else if (['Space', 'Enter', 'ArrowRight'].includes(evento.code)) avancar();
+    };
+    toque.on('pointerdown', avancar);
+    pular.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
+        evento.stopPropagation();
+        encerrar();
+    });
+    cena.input.keyboard.on('keydown', tecla);
+    cena.events.once('shutdown', () => cena.input.keyboard.off('keydown', tecla));
+    mostrarQuadro(0);
+}
+
+// A arte do tronco tem uma folga transparente no topo.
+function topoTronco(plataforma) {
+    return plataforma.y - plataforma.displayHeight / 2 + 7;
+}
+
+// O vilao: sobe os troncos logo acima do gato, carregando o saco roubado.
+function criarGuaxinim(cena) {
+    const figura = cena.add.image(0, 0, 'guaxinim').setOrigin(0.5, 0.98);
+    const saco = cena.add.image(19, -20, 'fx_saco').setScale(0.5).setAngle(14);
+    // Fica atras dos granulados para nao esconder o que o jogador vai pegar.
+    const visual = cena.add.container(0, 0, [figura, saco]).setDepth(1.5);
+    cena.guaxinim = {
+        visual, figura,
+        escala: 62 / figura.width,
+        plataforma: null, deslocX: 0, pulando: false, direcao: -1,
+        deformacao: { x: 1, y: 1 }, tempo: 0,
+        proximaProvocacao: 0, vistoEm: 0
+    };
+    const primeiro = cena.plataformas.getChildren().find((plataforma) => plataforma.numero === 1);
+    if (primeiro) {
+        cena.guaxinim.plataforma = primeiro;
+        cena.guaxinim.deslocX = sortearLadoTronco(primeiro);
+        visual.setPosition(primeiro.x + cena.guaxinim.deslocX, topoTronco(primeiro));
+    }
+    atualizarVisualGuaxinim(cena);
+}
+
+// Para perto de uma das pontas, deixando o meio do tronco livre para o granulado.
+function sortearLadoTronco(plataforma) {
+    const folga = Math.max(0, plataforma.displayWidth / 2 - 22);
+    return folga * Phaser.Math.FloatBetween(0.5, 1) * (Math.random() < 0.5 ? -1 : 1);
+}
+
+function atualizarVisualGuaxinim(cena) {
+    const guaxinim = cena.guaxinim;
+    const respiro = guaxinim.pulando ? 0 : Math.sin(guaxinim.tempo * 5) * 0.03;
+    guaxinim.figura.setScale(
+        guaxinim.escala * guaxinim.deformacao.x * (1 - respiro / 2),
+        guaxinim.escala * guaxinim.deformacao.y * (1 + respiro));
+    // A arte olha para a direita; o container espelha figura e saco juntos.
+    guaxinim.visual.scaleX = guaxinim.direcao;
+}
+
+// O guaxinim nunca e alcancado: foge sempre um tronco a frente do gato.
+function atualizarGuaxinim(cena, delta) {
+    const guaxinim = cena.guaxinim;
+    const agora = cena.time.now;
+    const camera = cena.cameras.main;
+    guaxinim.tempo += delta / 1000;
+    // Pes abaixo do placar e acima do fim da tela: o corpo inteiro aparece.
+    const visivel = guaxinim.visual.y > camera.scrollY + 100 &&
+        guaxinim.visual.y < camera.scrollY + config.height;
+    if (visivel || guaxinim.pulando) guaxinim.vistoEm = agora;
+    if (!guaxinim.pulando) {
+        const plataforma = guaxinim.plataforma;
+        if (plataforma && plataforma.active) {
+            guaxinim.visual.setPosition(plataforma.x + guaxinim.deslocX, topoTronco(plataforma));
+        }
+        // Fica de olho no gato enquanto espera.
+        guaxinim.direcao = cena.caixa.x < guaxinim.visual.x ? -1 : 1;
+        const distancia = cena.caixa.body.bottom - guaxinim.visual.y;
+        // No topo do pulo o gato passa ~113 px abaixo do segundo tronco acima;
+        // fugir so abaixo disso mantem o guaxinim um tronco a frente, e nao dois.
+        if (!plataforma || !plataforma.active ||
+            plataforma.numero <= cena.ultimoTronco || distancia < 105) {
+            const alvo = escolherFugaGuaxinim(cena);
+            if (alvo) pularGuaxinim(cena, alvo);
+        } else if (agora - guaxinim.vistoEm > 1500) {
+            // Se passou tempo demais fora da tela, volta para um tronco visivel a frente.
+            const alvo = escolherTroncoVisivel(cena);
+            if (alvo && alvo !== plataforma) pularGuaxinim(cena, alvo);
+        } else if (visivel && distancia > 170 && agora > guaxinim.proximaProvocacao) {
+            provocarGuaxinim(cena);
+        }
+    }
+    atualizarVisualGuaxinim(cena);
+}
+
+// O tronco a frente do gato mais proximo dele que aparece inteiro na tela.
+function escolherTroncoVisivel(cena) {
+    const camera = cena.cameras.main;
+    const pes = cena.caixa.body.bottom;
+    let alvo = null;
+    for (const plataforma of cena.plataformas.getChildren()) {
+        const topo = topoTronco(plataforma);
+        if (!plataforma.active || plataforma.numero <= cena.ultimoTronco ||
+            topo < camera.scrollY + 110 || topo > pes - 105) continue;
+        if (!alvo || plataforma.numero < alvo.numero) alvo = plataforma;
+    }
+    return alvo;
+}
+
+// O proximo tronco que fica pelo menos 150 px acima dos pes do gato.
+function escolherFugaGuaxinim(cena) {
+    const guaxinim = cena.guaxinim;
+    const pes = cena.caixa.body.bottom;
+    const minimo = Math.max(guaxinim.plataforma ? guaxinim.plataforma.numero : 0, cena.ultimoTronco);
+    let alvo = null;
+    for (const plataforma of cena.plataformas.getChildren()) {
+        if (!plataforma.active || plataforma.numero <= minimo || topoTronco(plataforma) > pes - 150) continue;
+        if (!alvo || plataforma.numero < alvo.numero) alvo = plataforma;
+    }
+    return alvo;
+}
+
+function pularGuaxinim(cena, alvo) {
+    const guaxinim = cena.guaxinim;
+    const camera = cena.cameras.main;
+    const inicioX = guaxinim.visual.x;
+    // Se ficou longe da tela, reaparece saltando da borda mais proxima.
+    const inicioY = Phaser.Math.Clamp(guaxinim.visual.y,
+        camera.scrollY - 40, camera.scrollY + config.height + 40);
+    const visivel = inicioY < camera.scrollY + config.height && inicioY > camera.scrollY;
+    guaxinim.pulando = true;
+    guaxinim.plataforma = alvo;
+    guaxinim.deslocX = sortearLadoTronco(alvo);
+    guaxinim.direcao = alvo.x + guaxinim.deslocX >= inicioX ? 1 : -1;
+    if (visivel) som.guaxinimPulo();
+    const deformacao = guaxinim.deformacao;
+    cena.tweens.killTweensOf(deformacao);
+    deformacao.x = 0.85;
+    deformacao.y = 1.18;
+    cena.tweens.add({ targets: deformacao, x: 1, y: 1, duration: 300, ease: 'Sine.easeOut' });
+    const progresso = { t: 0 };
+    let proximoGranulo = 0;
+    cena.tweens.add({
+        targets: progresso, t: 1, duration: 520 / cena.velocidadeJogo,
+        onUpdate: () => {
+            const t = progresso.t;
+            guaxinim.visual.x = Phaser.Math.Linear(inicioX, alvo.x + guaxinim.deslocX, t);
+            guaxinim.visual.y = Phaser.Math.Linear(inicioY, topoTronco(alvo), t) - 70 * 4 * t * (1 - t);
+            // O saco vai deixando cair granulados pelo caminho.
+            if (t >= proximoGranulo) {
+                proximoGranulo += 0.3;
+                cena.efeitos.granulos.explode(1,
+                    guaxinim.visual.x + guaxinim.direcao * 18, guaxinim.visual.y - 20);
+            }
+        },
+        onComplete: () => {
+            guaxinim.pulando = false;
+            cena.efeitos.poeira.explode(4, guaxinim.visual.x, guaxinim.visual.y);
+            deformacao.x = 1.22;
+            deformacao.y = 0.8;
+            cena.tweens.add({
+                targets: deformacao, x: 1, y: 1, duration: 380,
+                ease: 'Elastic.easeOut', easeParams: [1, 0.45]
+            });
+        }
+    });
+}
+
+function provocarGuaxinim(cena) {
+    const guaxinim = cena.guaxinim;
+    guaxinim.proximaProvocacao = cena.time.now + Phaser.Math.Between(3500, 6500);
+    if (guaxinim.pulando) return;
+    mostrarPopup(cena, guaxinim.visual.x, guaxinim.visual.y - 66, 'hehe!', '#f2f2f2', 14);
+    som.risada();
+    cena.tweens.killTweensOf(guaxinim.deformacao);
+    guaxinim.deformacao.x = 0.9;
+    guaxinim.deformacao.y = 1.12;
+    cena.tweens.add({
+        targets: guaxinim.deformacao, x: 1, y: 1, duration: 500,
+        ease: 'Elastic.easeOut', easeParams: [1, 0.4]
+    });
+}
+
 function mostrarMorte(cena) {
     if (cena.morreu) return;
     cena.morreu = true;
     cena.physics.pause();
+    musica.parar(0.04);
+    som.morte();
+    cena.cameras.main.shake(240, 0.006);
 
-    const sombra = cena.add.rectangle(180, 320, 360, 640, 0x160d08, 0.82);
-    const titulo = cena.add.text(180, 250, 'Voc\u00ea morreu', {
-        resolution: 4,
-        fontFamily: 'Arial', fontSize: '32px', fontStyle: 'bold', color: '#ffe1a6'
-    }).setOrigin(0.5);
-    const pontos = cena.add.text(180, 310, 'Granulados: ' + cena.totalMoedas, {
-        resolution: 4,
-        fontFamily: 'Arial', fontSize: '20px', color: '#ffffff'
-    }).setOrigin(0.5);
-    const convite = cena.add.text(180, 385, 'Toque para come\u00e7ar novamente\n\nou pressione Espa\u00e7o ou Enter', {
-        resolution: 4,
-        fontFamily: 'Arial', fontSize: '18px', color: '#f4ddc9', align: 'center'
-    }).setOrigin(0.5);
-    cena.add.container(0, 0, [sombra, titulo, pontos, convite])
-        .setScrollFactor(0).setDepth(30);
+    const anterior = cena.recorde;
+    const jaTinhaRecorde = anterior.granulados > 0 || anterior.altura > 0;
+    const novoRecorde = jaTinhaRecorde &&
+        (cena.totalMoedas > anterior.granulados || cena.alturaMax > anterior.altura);
+    cena.recorde = {
+        granulados: Math.max(anterior.granulados, cena.totalMoedas),
+        troncos: Math.max(anterior.troncos, cena.contador),
+        altura: Math.max(anterior.altura, cena.alturaMax)
+    };
+    salvarArmazenado(chaveRecorde, cena.recorde);
+
+    const estilo = (tamanho, cor, extra = {}) => ({
+        resolution: 4, fontFamily: 'Arial', fontSize: tamanho + 'px', color: cor,
+        align: 'center', ...extra
+    });
+    const sombra = cena.add.rectangle(180, 320, 360, 640, 0x160d08, 0.82)
+        .setScrollFactor(0).setDepth(30).setAlpha(0);
+    const fundo = cena.add.graphics()
+        .fillStyle(0x3b2418, 1).fillRoundedRect(-150, -140, 300, 280, 20)
+        .lineStyle(3, 0xffe1a6, 0.9).strokeRoundedRect(-150, -140, 300, 280, 20);
+    const titulo = cena.add.text(0, -102, 'Você perdeu',
+        estilo(30, corTexto, { fontStyle: 'bold' })).setOrigin(0.5);
+    const icone = cena.add.image(0, -40, 'moeda').setScale(40 / 808);
+    const pontos = cena.add.text(0, -40, '0',
+        estilo(36, '#ffffff', { fontStyle: 'bold' })).setOrigin(0, 0.5);
+    const centralizarPontos = () => {
+        const largura = 40 + 10 + pontos.width;
+        icone.x = -largura / 2 + 20;
+        pontos.x = icone.x + 30;
+    };
+    centralizarPontos();
+    const troncos = cena.add.text(0, 8, 'Troncos: ' + cena.contador,
+        estilo(17, '#f4ddc9')).setOrigin(0.5);
+    const recorde = cena.add.text(0, 38,
+        `Recorde: ${contar(cena.recorde.granulados, 'granulado')} · ${contar(cena.recorde.troncos, 'tronco')}`,
+        estilo(13, '#c9a98a')).setOrigin(0.5);
+    const convite = cena.add.text(0, 92,
+        'Toque para jogar de novo',
+        estilo(15, '#f4ddc9', { lineSpacing: 4 })).setOrigin(0.5);
+    const painel = cena.add.container(180, 320,
+        [fundo, titulo, icone, pontos, troncos, recorde, convite])
+        .setScrollFactor(0).setDepth(31).setScale(0.6).setAlpha(0);
+
+    cena.tweens.add({ targets: sombra, alpha: 1, duration: 260 });
+    cena.tweens.add({
+        targets: painel, scale: 1, alpha: 1, delay: 150, duration: 380, ease: 'Back.easeOut'
+    });
+    // Conta os granulados subindo ate o total da partida.
+    if (cena.totalMoedas > 0) {
+        cena.tweens.addCounter({
+            from: 0, to: cena.totalMoedas, delay: 400,
+            duration: Math.min(900, 250 + cena.totalMoedas * 40),
+            onUpdate: (contagem) => {
+                pontos.setText(String(Math.round(contagem.getValue())));
+                centralizarPontos();
+            }
+        });
+    }
+    cena.tweens.add({
+        targets: convite, alpha: 0.45, delay: 900, duration: 700,
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+    if (novoRecorde) {
+        const selo = cena.add.text(0, -142, 'NOVO RECORDE!', estilo(16, '#3b2418', {
+            fontStyle: 'bold', backgroundColor: '#ffd24a', padding: { x: 12, y: 6 }
+        })).setOrigin(0.5).setAngle(-5);
+        painel.add(selo);
+        cena.time.delayedCall(500, () => som.recorde());
+        cena.tweens.add({
+            targets: selo, scale: 1.08, duration: 550,
+            yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+        });
+    }
 
     const limparEventos = () => {
         cena.input.off('pointerdown', reiniciar);
@@ -240,13 +1392,17 @@ function mostrarMorte(cena) {
     const reiniciar = (evento) => {
         if (reiniciando || evento.repeat) return;
         reiniciando = true;
+        som.iniciar();
         limparEventos();
         cena.scene.restart({ reiniciar: true });
     };
-    // Exige um novo toque, evitando reiniciar ao soltar o controle da queda.
-    cena.input.on('pointerdown', reiniciar);
-    cena.input.keyboard.on('keydown-SPACE', reiniciar);
-    cena.input.keyboard.on('keydown-ENTER', reiniciar);
+    // Espera o painel aparecer e exige um novo toque, evitando reiniciar
+    // sem querer ao soltar o controle da queda.
+    cena.time.delayedCall(450, () => {
+        cena.input.on('pointerdown', reiniciar);
+        cena.input.keyboard.on('keydown-SPACE', reiniciar);
+        cena.input.keyboard.on('keydown-ENTER', reiniciar);
+    });
     cena.events.once('shutdown', limparEventos);
 }
 
@@ -345,13 +1501,6 @@ function atualizarMoedas(cena, delta) {
     }
 }
 
-function atualizarFundoContador(cena) {
-    const texto = cena.textoMoedas;
-    // Acompanha a largura do texto quando a quantidade de digitos aumenta.
-    cena.fundoContador.clear().fillStyle(0x382017, 1)
-        .fillRoundedRect(texto.x - texto.width / 2, texto.y, texto.width, texto.height, 10);
-}
-
 function atualizarPlataformasMoveis(cena, delta) {
     for (const plataforma of cena.plataformas.getChildren()) {
         const movimento = plataforma.movimento;
@@ -372,9 +1521,20 @@ function coletarMoeda(caixa, moeda) {
     moeda.coletada = true;
     moeda.body.enable = false;
     cena.totalMoedas += 1;
-    cena.textoMoedas.setText('Granulados: ' + cena.totalMoedas);
-    atualizarFundoContador(cena);
-    if (moeda.dourada) aplicarImpulsoDourado(caixa);
+    // Coletas em sequencia rapida formam um combo sonoro.
+    const agora = cena.time.now;
+    cena.comboGranulado = agora - cena.ultimoGranulado < 1800 ? cena.comboGranulado + 1 : 0;
+    cena.ultimoGranulado = agora;
+    atualizarHud(cena);
+    pulsarHud(cena, cena.hud.granulados);
+    cena.efeitos.brilho.explode(moeda.dourada ? 22 : 8, moeda.x, moeda.y);
+    if (moeda.dourada) {
+        aplicarImpulsoDourado(caixa);
+        mostrarPopup(cena, moeda.x, moeda.y - 14, 'SUPER PULO!', '#ffd24a', 18);
+    } else {
+        som.granulado(cena.comboGranulado);
+        mostrarPopup(cena, moeda.x, moeda.y - 10, '+1');
+    }
     const efeito = cena.add.image(moeda.x, moeda.y, moeda.texture.key)
         .setScale(moeda.scaleX).setAngle(moeda.angle).setDepth(3);
     moeda.destroy();
@@ -386,13 +1546,32 @@ function coletarMoeda(caixa, moeda) {
     });
 }
 
-function aplicarImpulsoDourado(caixa) {
+function configurarComandoSecreto(cena) {
+    if (!cena.sys.game.device.os.desktop) return;
+    // Atalho oculto de PC: Shift + B durante a partida.
+    const superImpulso = (evento) => {
+        if (!evento.shiftKey || evento.ctrlKey || evento.altKey || evento.metaKey || evento.repeat) return;
+        if (!cena.iniciado || cena.morreu || cena.iniciando || cena.pausado) return;
+        aplicarImpulsoDourado(cena.caixa, 1200);
+    };
+    cena.input.keyboard.on('keydown-B', superImpulso);
+    cena.events.once('shutdown', () => {
+        cena.input.keyboard.off('keydown-B', superImpulso);
+    });
+}
+
+function aplicarImpulsoDourado(caixa, forca = 640) {
     const cena = caixa.scene;
-    // Velocidade 1,6x maior: o salto sobe cerca de 2,56x a altura normal.
+    // O dourado usa 640; o comando secreto usa um impulso mais forte.
     caixa.quedaSemVolta = false;
     caixa.poseContatoAte = 0;
     caixa.setTexture('pulando').setDisplaySize(78, 80);
-    caixa.body.setVelocityY(Math.min(caixa.body.velocity.y, -640 * cena.velocidadeJogo));
+    caixa.body.setVelocityY(Math.min(caixa.body.velocity.y, -forca * cena.velocidadeJogo));
+    // Deixa um rastro dourado enquanto o impulso dura.
+    caixa.turboAte = cena.time.now + 700;
+    deformarGato(cena, 0.75, 1.3, 520);
+    cena.cameras.main.shake(160, 0.005);
+    som.dourado();
     const onda = cena.add.circle(caixa.x, caixa.y + 32, 16, 0xffda45, 0.2)
         .setStrokeStyle(3, 0xffec99).setDepth(3);
     cena.tweens.add({
@@ -469,35 +1648,125 @@ function atualizarCenario(cena, delta) {
     });
 }
 
-function pular(caixa,plataforma) {
+// Achata ou estica o gato e volta ao normal com um balanco elastico.
+function deformarGato(cena, x, y, duracao) {
+    const deformacao = cena.deformacao;
+    cena.tweens.killTweensOf(deformacao);
+    deformacao.x = x;
+    deformacao.y = y;
+    cena.tweens.add({
+        targets: deformacao, x: 1, y: 1,
+        duration: duracao / cena.velocidadeJogo,
+        ease: 'Elastic.easeOut', easeParams: [1, 0.45]
+    });
+}
+
+function sincronizarGato(cena, delta) {
+    const corpo = cena.caixa;
+    const gato = cena.gato;
+    if (gato.texture.key !== corpo.texture.key) gato.setTexture(corpo.texture.key);
+    // A imagem fica presa pelos pes, entao o achatamento nao tira o gato do tronco.
+    gato.setPosition(corpo.x, corpo.y + corpo.displayHeight / 2);
+    gato.setFlipX(corpo.flipX);
+    gato.setScale(78 / gato.frame.width * cena.deformacao.x,
+        80 / gato.frame.height * cena.deformacao.y);
+    // A sombra no gramado encolhe e some conforme o gato sobe.
+    if (cena.sombraGato) {
+        const pertoDoChao = Phaser.Math.Clamp(1 - (alturaChao - gato.y) / 170, 0, 1);
+        cena.sombraGato.setPosition(corpo.x, alturaChao - 1)
+            .setScale(0.5 + 0.5 * pertoDoChao, 1).setAlpha(0.3 * pertoDoChao);
+    }
+    // Inclina levemente na direcao do movimento lateral.
+    const velocidadeX = corpo.body ? corpo.body.velocity.x : 0;
+    const inclinacao = velocidadeX / (200 * cena.velocidadeJogo) * 7;
+    gato.angle += (inclinacao - gato.angle) * (1 - Math.exp(-12 * delta / 1000));
+
+    const agora = cena.time.now;
+    if (corpo.turboAte > agora && !cena.pausado && !cena.morreu &&
+        agora >= (cena.proximoRastro || 0)) {
+        cena.proximoRastro = agora + 45;
+        const rastro = cena.add.image(gato.x, gato.y, gato.texture.key)
+            .setOrigin(0.5, 1).setScale(gato.scaleX, gato.scaleY)
+            .setFlipX(gato.flipX).setAngle(gato.angle)
+            .setTintFill(0xffd24a).setAlpha(0.4).setDepth(4);
+        cena.tweens.add({
+            targets: rastro, alpha: 0, duration: 280, onComplete: () => rastro.destroy()
+        });
+    }
+}
+
+// O tronco rachado se parte em duas metades que caem girando.
+function quebrarTronco(cena, plataforma) {
+    const meiaLargura = plataforma.frame.width / 2;
+    [-1, 1].forEach((lado) => {
+        const pedaco = cena.add.image(plataforma.x + lado * plataforma.displayWidth / 4,
+            plataforma.y, plataforma.texture.key)
+            .setOrigin(lado < 0 ? 0.25 : 0.75, 0.5)
+            .setScale(plataforma.scaleX, plataforma.scaleY)
+            .setCrop(lado < 0 ? 0 : meiaLargura, 0, meiaLargura, plataforma.frame.height)
+            .setDepth(1);
+        cena.tweens.add({
+            targets: pedaco, x: pedaco.x + lado * 26, y: pedaco.y + 190,
+            angle: lado * 60, alpha: 0, duration: 650, ease: 'Quad.easeIn',
+            onComplete: () => pedaco.destroy()
+        });
+    });
+    cena.efeitos.lascas.explode(12, plataforma.x, plataforma.y);
+    som.quebra();
+    plataforma.destroy();
+}
+
+function pular(caixa, plataforma) {
+    const cena = caixa.scene;
+    cena.ultimoTronco = Math.max(cena.ultimoTronco, plataforma.numero);
     // Cada tronco conta uma unica vez; o chao nao entra na contagem.
     if (plataforma.numero > 0 && !plataforma.contada) {
         plataforma.contada = true;
-        caixa.scene.contador += 1;
-        if (caixa.scene.contador % 20 === 0) {
-            caixa.scene.plataformas.getChildren().forEach(function (tronco) {
-                ajustarLarguraTronco(caixa.scene, tronco);
+        cena.contador += 1;
+        atualizarHud(cena);
+        if (cena.contador % 20 === 0) {
+            cena.plataformas.getChildren().forEach(function (tronco) {
+                ajustarLarguraTronco(cena, tronco);
             });
+            const proxima = 1 + cena.contador / 20 * 0.25;
+            if (proxima <= velocidadeMaxima) {
+                mostrarFaixa(cena,
+                    proxima === velocidadeMaxima ? 'VELOCIDADE MÁXIMA!' : 'MAIS RÁPIDO!',
+                    'Nível ' + (cena.contador / 20 + 1));
+                som.nivel();
+            }
         }
     }
-    // Acelera 25% da velocidade inicial a cada 20 troncos alcancados.
-    const velocidade = 1 + Math.floor(caixa.scene.contador / 20) * 0.25;
-    caixa.scene.velocidadeJogo = velocidade;
+    // Acelera 25% da velocidade inicial a cada 20 troncos alcancados, ate o limite.
+    const velocidade = Math.min(velocidadeMaxima, 1 + Math.floor(cena.contador / 20) * 0.25);
+    cena.velocidadeJogo = velocidade;
+    musica.definirVelocidade(velocidade);
     // Gravidade proporcional ao quadrado preserva a altura e o alcance do salto.
-    caixa.scene.physics.world.gravity.y = config.physics.arcade.gravity.y * velocidade ** 2;
+    cena.physics.world.gravity.y = config.physics.arcade.gravity.y * velocidade ** 2;
     // A pose de contato acompanha o ritmo do jogo.
     caixa.setTexture('quasePulando').setDisplaySize(78, 80);
-    caixa.poseContatoAte = caixa.scene.time.now + 120 / velocidade;
+    caixa.poseContatoAte = cena.time.now + 120 / velocidade;
     // Garante o impulso mesmo quando a plataforma quebra.
     caixa.body.setVelocityY(-400 * velocidade);
-    if (plataforma.fragil) { 
-        plataforma.destroy();
+    som.pulo();
+    if (plataforma.numero === 0) cena.efeitos.grama.explode(8, caixa.x, caixa.y + 38);
+    else cena.efeitos.poeira.explode(7, caixa.x, caixa.y + 36);
+    deformarGato(cena, 1.3, 0.72, 420);
+    if (plataforma.fragil) {
+        quebrarTronco(cena, plataforma);
+    } else if (plataforma.numero > 0) {
+        // O tronco cede um pouco com o peso; o corpo de colisao fica parado.
+        cena.tweens.add({
+            targets: plataforma, y: plataforma.y + 5, duration: 70,
+            yoyo: true, ease: 'Quad.easeOut'
+        });
     }
 }
 
 function update(time, delta) {
-    if (!this.iniciado || this.morreu) return;
+    if (!this.iniciado || this.morreu || this.pausado) return;
     atualizarPlataformasMoveis(this, delta);
+    atualizarGuaxinim(this, delta);
     if (this.caixa.y - this.caixa.displayHeight / 2 >
         this.cameras.main.scrollY + config.height) {
         mostrarMorte(this);
@@ -522,13 +1791,14 @@ function update(time, delta) {
     }
 
     let direcao = 0;
-    if (this.cursors.left.isDown) {
+    const ponteiro = this.input.activePointer;
+    if (this.cursors.left.isDown || this.teclasLaterais.A.isDown) {
         direcao = -1;
-    } else if (this.cursors.right.isDown) {
+    } else if (this.cursors.right.isDown || this.teclasLaterais.D.isDown) {
         direcao = 1;
-    } else if (this.input.activePointer.isDown) {
+    } else if (ponteiro.isDown && ponteiro.y / escalaRenderizacao > alturaHud) {
         // Segure na metade esquerda ou direita da tela para andar.
-        direcao = this.input.activePointer.x < this.scale.gameSize.width / 2 ? -1 : 1;
+        direcao = ponteiro.x < this.scale.gameSize.width / 2 ? -1 : 1;
     }
 
     this.caixa.body.setVelocityX(direcao * 200 * this.velocidadeJogo);
@@ -543,6 +1813,15 @@ function update(time, delta) {
         const velocidadeY = this.caixa.body.velocity.y;
         this.caixa.body.reset(x, this.caixa.y);
         this.caixa.body.setVelocityY(velocidadeY);
+    }
+
+    const altura = this.cenario.alturaInicialGato - this.caixa.y;
+    if (altura > this.alturaMax) {
+        this.alturaMax = altura;
+        if (!this.passouRecorde && this.recorde.altura > 0 && altura > this.recorde.altura) {
+            this.passouRecorde = true;
+            comemorarRecorde(this);
+        }
     }
 
     const camera = this.cameras.main;

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gerar cenario</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #233c24; color: #ffe1a6; margin: 24px; }
+    button { font-size: 16px; padding: 10px 18px; background: #634128; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+    #faixas { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+    #faixas figure { margin: 0; text-align: center; }
+    #faixas img { width: 120px; display: block; border: 2px solid #ffe1a6; }
+    a { color: #ffd24a; }
+  </style>
+</head>
+<body>
+  <h1>Gerar cenario do jogo</h1>
+  <p>
+    Converte <code>assets/Cenario Jogo 1.svg</code> nas faixas WebP que o jogo carrega
+    (<code>assets/cenario/cenario-N.webp</code>), suavizando as emendas entre os blocos
+    repetidos do tronco. Rode de novo sempre que o SVG mudar e salve os arquivos baixados
+    em <code>assets/cenario/</code>.
+  </p>
+  <p>Abra esta pagina pelo servidor local do jogo (por exemplo http://localhost:8000/ferramentas/gerar-cenario.html).</p>
+  <button id="gerar">Gerar faixas</button>
+  <p id="estado"></p>
+  <div id="faixas"></div>
+  <script>
+    // Mesmas medidas de texturaCenario em GameV2.js.
+    const cenario = { largura: 1399, altura: 8192, alturaFaixa: 2044, margem: 2, centroTronco: 665 };
+
+    // O tronco e montado com blocos repetidos cujos veios nao se encaixam.
+    // Acha as linhas com salto brusco de cor no miolo do tronco e mistura
+    // cada lado da emenda com o seu espelho, desfazendo o corte reto.
+    function suavizarEmendasTronco(ctx, largura, altura) {
+      const larguraAmostra = 110;
+      const x0 = cenario.centroTronco - larguraAmostra / 2;
+      const amostra = ctx.getImageData(x0, 0, larguraAmostra, altura).data;
+      const passo = new Float32Array(altura);
+      for (let y = 1; y < altura; y++) {
+        let soma = 0;
+        for (let x = 0; x < larguraAmostra; x++) {
+          const i = (y * larguraAmostra + x) * 4;
+          const j = i - larguraAmostra * 4;
+          soma += Math.abs(amostra[i] - amostra[j]) + Math.abs(amostra[i + 1] - amostra[j + 1]) +
+            Math.abs(amostra[i + 2] - amostra[j + 2]);
+        }
+        passo[y] = soma / larguraAmostra;
+      }
+      const emendas = [];
+      for (let y = 14; y < altura - 14; y++) {
+        const pico = passo[y] >= passo[y - 1] && passo[y] >= passo[y + 1] &&
+          passo[y] >= passo[y - 2] && passo[y] >= passo[y + 2];
+        if (!pico) continue;
+        const salto = passo[y] + Math.max(passo[y - 1], passo[y + 1]);
+        let base = 0;
+        for (let k = 4; k <= 12; k++) base += passo[y - k] + passo[y + k];
+        base /= 18;
+        if (salto > 30 && salto > base * 5) emendas.push(y);
+      }
+      const raio = 10;
+      const xa = Math.max(0, cenario.centroTronco - 190);
+      const xb = Math.min(largura, cenario.centroTronco + 190);
+      const madeira = (p, i) => p[i] >= 150 && p[i + 2] <= 95 && p[i] - p[i + 1] >= 45;
+      for (const emenda of emendas) {
+        const topo = Math.max(0, emenda - raio);
+        const fundo = Math.min(altura, emenda + raio);
+        const larguraBloco = xb - xa;
+        const bloco = ctx.getImageData(xa, topo, larguraBloco, fundo - topo);
+        const p = bloco.data;
+        const original = p.slice();
+        for (let y = topo; y < fundo; y++) {
+          const espelho = 2 * emenda - 1 - y;
+          if (espelho < topo || espelho >= fundo) continue;
+          const distancia = y >= emenda ? y - emenda : emenda - 1 - y;
+          const peso = 0.5 * (1 - (distancia + 0.5) / raio);
+          for (let x = 0; x < larguraBloco; x++) {
+            const i = ((y - topo) * larguraBloco + x) * 4;
+            const j = ((espelho - topo) * larguraBloco + x) * 4;
+            // So mistura madeira com madeira, preservando o contorno escuro e o ceu.
+            if (!madeira(original, i) || !madeira(original, j)) continue;
+            for (let c = 0; c < 3; c++) p[i + c] = original[i + c] + (original[j + c] - original[i + c]) * peso;
+          }
+        }
+        ctx.putImageData(bloco, xa, topo);
+      }
+      return emendas;
+    }
+
+    // Nos blocos do tronco os veios param 1 ou 2 px antes da emenda, e a madeira
+    // clara aparece como uma linha tracejada. Acha essas linhas (muitos pixels mais
+    // claros que os de cima e de baixo) e continua os veios interpolando.
+    function preencherFalhasVeios(ctx, largura, altura) {
+      const xa = Math.max(0, cenario.centroTronco - 190);
+      const larguraBloco = Math.min(largura, cenario.centroTronco + 190) - xa;
+      const imagem = ctx.getImageData(xa, 0, larguraBloco, altura);
+      const p = imagem.data;
+      const madeira = (i) => p[i] >= 150 && p[i + 2] <= 95 && p[i] - p[i + 1] >= 45;
+      const luz = (i) => (p[i] + p[i + 1] + p[i + 2]) / 3;
+      const marcadas = [];
+      for (let y = 2; y < altura - 2; y++) {
+        let total = 0;
+        let claros = 0;
+        for (let x = 0; x < larguraBloco; x++) {
+          const i = (y * larguraBloco + x) * 4;
+          const a = i - 2 * larguraBloco * 4;
+          const b = i + 2 * larguraBloco * 4;
+          if (!madeira(a) || !madeira(b)) continue;
+          total++;
+          if (luz(i) > (luz(a) + luz(b)) / 2 + 8) claros++;
+        }
+        if (total > 50 && claros / total > 0.06) marcadas.push(y);
+      }
+      // Junta linhas marcadas vizinhas (com ate 1 linha de folga) em faixas.
+      const faixas = [];
+      for (const y of marcadas) {
+        const ultima = faixas[faixas.length - 1];
+        if (ultima && y - ultima[1] <= 2) ultima[1] = y;
+        else faixas.push([y, y]);
+      }
+      for (const [inicio, fim] of faixas) {
+        const ya = inicio - 3;
+        const yb = fim + 3;
+        if (ya < 0 || yb >= altura) continue;
+        for (let x = 0; x < larguraBloco; x++) {
+          const a = (ya * larguraBloco + x) * 4;
+          const b = (yb * larguraBloco + x) * 4;
+          if (!madeira(a) || !madeira(b)) continue;
+          for (let y = inicio - 1; y <= fim + 1; y++) {
+            const i = (y * larguraBloco + x) * 4;
+            const t = (y - ya) / (yb - ya);
+            const esperado = [0, 1, 2].map((c) => p[a + c] + (p[b + c] - p[a + c]) * t);
+            if (luz(i) > (esperado[0] + esperado[1] + esperado[2]) / 3 + 6) {
+              for (let c = 0; c < 3; c++) p[i + c] = esperado[c];
+            }
+          }
+        }
+      }
+      ctx.putImageData(imagem, xa, 0);
+      return faixas.length;
+    }
+
+    // A borda da imagem da floresta deixa uma linha fina no ceu. Acha linhas de
+    // 1 a 3 px que destoam das vizinhas no ceu e as refaz interpolando acima e abaixo,
+    // so onde a imagem e lisa (ceu), sem borrar arvores e nuvens.
+    function removerLinhasCeu(ctx, largura, altura) {
+      const colunas = [];
+      for (let x = 330; x < 500; x += 3) colunas.push(x);
+      for (let x = 830; x < 980; x += 3) colunas.push(x);
+      const dados = ctx.getImageData(0, 0, largura, altura).data;
+      const cor = (x, y) => { const i = (y * largura + x) * 4; return [dados[i], dados[i + 1], dados[i + 2], dados[i + 3]]; };
+      const diferenca = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+      const linhas = [];
+      for (let y = 4; y < altura - 4; y++) {
+        let ceu = 0;
+        let destoa = 0;
+        for (const x of colunas) {
+          const acima = cor(x, y - 3);
+          const abaixo = cor(x, y + 3);
+          if (acima[3] < 250 || acima[2] < acima[0] + 60 || diferenca(acima, abaixo) > 12) continue;
+          ceu++;
+          const meio = [0, 1, 2].map((c) => (acima[c] + abaixo[c]) / 2);
+          if (diferenca(cor(x, y), meio) > 24) destoa++;
+        }
+        if (ceu > 12 && destoa / ceu > 0.5) linhas.push(y);
+      }
+      if (!linhas.length) return 0;
+      const imagem = ctx.getImageData(0, 0, largura, altura);
+      const p = imagem.data;
+      for (const y of linhas) {
+        for (let x = 0; x < largura; x++) {
+          const a = ((y - 3) * largura + x) * 4;
+          const b = ((y + 3) * largura + x) * 4;
+          if (p[a + 3] < 250 || p[b + 3] < 250) continue;
+          if (Math.abs(p[a] - p[b]) + Math.abs(p[a + 1] - p[b + 1]) + Math.abs(p[a + 2] - p[b + 2]) > 12) continue;
+          for (let k = -2; k <= 2; k++) {
+            const i = ((y + k) * largura + x) * 4;
+            const t = (k + 3) / 6;
+            for (let c = 0; c < 3; c++) p[i + c] = p[a + c] + (p[b + c] - p[a + c]) * t;
+          }
+        }
+      }
+      ctx.putImageData(imagem, 0, 0);
+      return linhas.length;
+    }
+
+    function carregarImagem(url) {
+      return new Promise((resolver, rejeitar) => {
+        const imagem = new Image();
+        imagem.onload = () => resolver(imagem);
+        imagem.onerror = rejeitar;
+        imagem.src = url;
+      });
+    }
+
+    // Desenha cada faixa do SVG (com margem de filtragem) e devolve os WebP prontos.
+    async function gerarFaixas(aoAvancar = () => {}) {
+      const texto = await (await fetch('../assets/Cenario Jogo 1.svg')).text();
+      const documento = new DOMParser().parseFromString(texto, 'image/svg+xml');
+      const raiz = documento.documentElement;
+      const [x, y, largura, altura] = raiz.getAttribute('viewBox').split(/[ ,]+/).map(Number);
+      raiz.setAttribute('x', x);
+      raiz.setAttribute('y', y);
+      raiz.setAttribute('width', largura);
+      raiz.setAttribute('height', altura);
+      // As faixas de gradiente do ceu e os blocos do tronco (cor base e veios) se
+      // encostam; um contorno da mesma cor fecha a fresta que o anti-aliasing deixa
+      // entre eles. Nos veios o contorno e mais fino para nao engrossar o desenho.
+      const larguraContorno = { '#EF8830': 24, '#CB601D': 16 };
+      documento.querySelectorAll('path').forEach((forma) => {
+        const cor = forma.getAttribute('fill') || '';
+        const largura = cor.startsWith('url(#paint') ? 24 : larguraContorno[cor];
+        if (!largura || forma.hasAttribute('stroke')) return;
+        forma.setAttribute('stroke', cor);
+        forma.setAttribute('stroke-width', String(largura));
+        forma.setAttribute('stroke-linejoin', 'round');
+      });
+      const original = new XMLSerializer().serializeToString(raiz);
+      const unidadesPorPixel = altura / cenario.altura;
+      const quantidade = Math.ceil(cenario.altura / cenario.alturaFaixa);
+      const faixas = [];
+      for (let i = 0; i < quantidade; i++) {
+        aoAvancar(`Desenhando faixa ${i + 1} de ${quantidade}...`);
+        const inicio = i * cenario.alturaFaixa;
+        const alturaTrecho = Math.min(cenario.alturaFaixa, cenario.altura - inicio) + cenario.margem * 2;
+        const topo = y + (inicio - cenario.margem) * unidadesPorPixel;
+        const trecho = `<svg xmlns="http://www.w3.org/2000/svg"
+          width="${cenario.largura}" height="${alturaTrecho}"
+          viewBox="${x} ${topo} ${largura} ${alturaTrecho * unidadesPorPixel}"
+          preserveAspectRatio="none">${original}</svg>`;
+        const url = URL.createObjectURL(new Blob([trecho], { type: 'image/svg+xml' }));
+        const imagem = await carregarImagem(url);
+        URL.revokeObjectURL(url);
+        const tela = document.createElement('canvas');
+        tela.width = cenario.largura;
+        tela.height = alturaTrecho;
+        const ctx = tela.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(imagem, 0, 0, tela.width, tela.height);
+        const emendas = preencherFalhasVeios(ctx, tela.width, tela.height) +
+          suavizarEmendasTronco(ctx, tela.width, tela.height).length +
+          removerLinhasCeu(ctx, tela.width, tela.height);
+        const blob = await new Promise((resolver) => tela.toBlob(resolver, 'image/webp', 0.9));
+        faixas.push({ nome: `cenario-${i}.webp`, blob, emendas });
+      }
+      return faixas;
+    }
+
+    document.getElementById('gerar').addEventListener('click', async () => {
+      const estado = document.getElementById('estado');
+      const lista = document.getElementById('faixas');
+      lista.innerHTML = '';
+      try {
+        const faixas = await gerarFaixas((texto) => { estado.textContent = texto; });
+        estado.textContent = 'Pronto! Clique em cada faixa para baixar e salve em assets/cenario/.';
+        for (const faixa of faixas) {
+          const url = URL.createObjectURL(faixa.blob);
+          lista.insertAdjacentHTML('beforeend', `<figure><a href="${url}" download="${faixa.nome}">
+            <img src="${url}" alt="${faixa.nome}"></a>
+            <figcaption>${faixa.nome}<br>${Math.round(faixa.blob.size / 1024)} KB, ${faixa.emendas} emendas</figcaption></figure>`);
+        }
+      } catch (erro) {
+        estado.textContent = 'Erro: ' + erro.message;
+      }
+    });
+  </script>
+</body>
+</html>

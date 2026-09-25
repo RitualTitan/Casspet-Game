@@ -1,11 +1,13 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CassPads - Granulando
-
-  </title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#233c24">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>CassPads - Granulando</title>
   <style>
     html, body {
       margin: 0;
@@ -13,6 +15,12 @@
       height: 100%;
       overflow: hidden;
       background: #111;
+      /* Evita puxar para atualizar, selecao de texto e o flash azul do toque. */
+      overscroll-behavior: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
     }
     #jogo {
       width: 100%;
@@ -29,6 +37,6 @@
 <body>
   <div id="jogo"></div>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.90/dist/phaser.min.js"></script>
-  <script src="GameV2.js?v=cenario-emendas-dourado-raro"></script>
+  <script src="GameV2.js?v=pacote-1"></script>
 </body>
 </html>
