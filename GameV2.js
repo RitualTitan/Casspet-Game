@@ -501,7 +501,7 @@ function create(data = {}) {
     // O primeiro passaro chega logo depois de o gato alcancar a altura deles.
     this.passaros = [];
     this.esperaPassaro = 2500;
-    this.vidaFundo = { esperaBorboleta: 2500, esperaBando: 6000 };
+    this.vidaFundo = { esperaBorboleta: 2500, esperaBando: 6000, esperaVagalume: 0 };
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
     const cenarioFundo = this.add.container(config.width / 2, config.height)
         .setScrollFactor(0).setDepth(-2);
@@ -840,23 +840,62 @@ function criarBorboletas(cena) {
     });
 }
 
-// Borboletas e bandos de passarinhos passam atras dos troncos, so para enfeitar.
-// Ficam menores e mais apagados que o passaro inimigo, para nao serem confundidos.
+// Bichinhos que passam atras dos troncos, so para enfeitar, de acordo com a fase do ceu:
+// borboletas de dia e no fim de tarde, bandos de passarinhos ate o por do sol e
+// vaga-lumes a noite. Ficam menores e mais apagados que o passaro inimigo.
 function atualizarVidaFundo(cena, delta) {
     const fundo = cena.vidaFundo;
+    const fase = cena.ceu.fase;
     fundo.esperaBorboleta -= delta;
     fundo.esperaBando -= delta;
-    if (fundo.esperaBorboleta <= 0) {
+    fundo.esperaVagalume -= delta;
+    if (fundo.esperaBorboleta <= 0 && fase <= 1) {
         criarBorboletaFundo(cena);
-        // Mais comuns perto do chao e mais raras no alto da arvore.
-        fundo.esperaBorboleta = cena.contador < 40
+        // Mais comuns perto do chao e mais raras no fim de tarde.
+        fundo.esperaBorboleta = fase === 0
             ? Phaser.Math.Between(4000, 7500) : Phaser.Math.Between(9000, 15000);
     }
-    if (fundo.esperaBando <= 0) {
+    if (fundo.esperaBando <= 0 && fase <= 2) {
         criarBandoFundo(cena);
         fundo.esperaBando = cena.contador < 15
             ? Phaser.Math.Between(11000, 16000) : Phaser.Math.Between(7000, 12000);
     }
+    if (fundo.esperaVagalume <= 0 && fase === 3) {
+        criarVagalume(cena);
+        fundo.esperaVagalume = Phaser.Math.Between(500, 1300);
+    }
+}
+
+// Pontinho de luz que vaga devagar e pisca.
+function criarVagalume(cena) {
+    const paralaxe = 0.25;
+    const camera = cena.cameras.main;
+    const inicioX = Phaser.Math.Between(20, config.width - 20);
+    const inicioY = Phaser.Math.Between(120, config.height - 120) + camera.scrollY * paralaxe;
+    const destinoX = inicioX + Phaser.Math.Between(-60, 60);
+    const destinoY = inicioY + Phaser.Math.Between(-50, 30);
+    const luz = (cor, escala) => cena.add.image(inicioX, inicioY, 'fx_ponto').setTint(cor).setScale(escala)
+        .setBlendMode('ADD').setAlpha(0).setScrollFactor(1, paralaxe).setDepth(-1.5);
+    const halo = luz(0xb8ff3a, 1.1);
+    const miolo = luz(0xf6ff9a, 0.38);
+    const duracao = Phaser.Math.Between(4000, 7000);
+    const piscadas = Phaser.Math.Between(2, 3);
+    cena.tweens.addCounter({
+        from: 0, to: 1, duration: duracao, ease: 'Sine.easeInOut',
+        onUpdate: (contagem) => {
+            const t = contagem.getValue();
+            const x = Phaser.Math.Linear(inicioX, destinoX, t);
+            const y = Phaser.Math.Linear(inicioY, destinoY, t) + Math.sin(t * 9) * 6;
+            // Acende e apaga algumas vezes durante o voo.
+            const brilho = Math.max(0, Math.sin(t * Math.PI * piscadas));
+            halo.setPosition(x, y).setAlpha(brilho * 0.45);
+            miolo.setPosition(x, y).setAlpha(brilho);
+        },
+        onComplete: () => {
+            halo.destroy();
+            miolo.destroy();
+        }
+    });
 }
 
 function criarBorboletaFundo(cena) {
@@ -926,10 +965,10 @@ function criarBandoFundo(cena) {
     });
 }
 
-// Passaros inimigos cruzam a tela a partir de certa altura. Um "!" na borda
-// avisa um instante antes; a bicada derruba granulados, mas o jogo continua.
+// Passaros inimigos cruzam a tela a partir de certa altura, ate a noite. Um "!" na
+// borda avisa um instante antes; a bicada derruba granulados, mas o jogo continua.
 function atualizarPassaros(cena, delta) {
-    if (cena.contador >= troncoPassaros) {
+    if (cena.contador >= troncoPassaros && cena.ceu.fase < 4) {
         cena.esperaPassaro -= delta;
         if (cena.esperaPassaro <= 0) {
             criarPassaro(cena);

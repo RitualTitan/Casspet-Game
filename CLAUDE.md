@@ -15,6 +15,11 @@ Todo o codigo esta em `GameV2.js`; codigo e comentarios em portugues, comentario
   borda de baixo e a camera deixa `folgaAbaixoGato` abaixo do gato; a sobra das telas altas aparece acima dele.
 - **O guaxinim (vilao) nunca pode ser pego.** Ele foge sempre um tronco a frente do gato e precisa ficar
   visivel. Uma mecanica de "+5 ao pegar" ja foi feita e o usuario recusou.
+- **Encostar no guaxinim e permitido** (pedido do usuario): de vez em quando ele ri de costas para o gato
+  (`distrairGuaxinim`); se o gato encostar nele nessa hora, ele se assusta, `granuladosSusto` granulados saem
+  do pacote e voam ate o gato, e ele continua fugindo. O jogo nunca acaba nem para por isso.
+- **Nenhum bicho come granulado** (so um castor poderia, e nao ha castor no jogo).
+- **Passaro inimigo nao mata:** a bicada derruba `granuladosBicada` granulados e empurra o gato para o lado.
 - Textos: a tela de derrota diz "Você perdeu". Na historia o item roubado e um **pacote** (nunca "saco")
   de **Granulado de Madeira Casspet®**.
 
@@ -29,7 +34,9 @@ ser revista em CONFIGURACOES > HISTORIA.
 
 - Repositorio `RitualTitan/Casspet-Game`, branch `main`. O GitHub Pages publica a `main` em
   https://ritualtitan.github.io/Casspet-Game/ (leva ~1 min).
-- Quando o usuario pedir para "subir no git para jogar", e commit + push na `main`.
+- **Nunca mexa direto na `main`.** Toda feature ou teste e feita num branch proprio, testada, apresentada
+  (previa jogavel e/ou Pull Request) e so vai para a `main` depois que o usuario aprovar.
+- Quando o usuario pedir para "subir no git para jogar" algo ja aprovado, e merge + push na `main`.
 - A cada mudanca no jogo, troque o `?v=` do `GameV2.js` no `index.html`, para o celular nao usar script em cache.
 
 ## Como rodar e validar
@@ -53,13 +60,17 @@ ser revista em CONFIGURACOES > HISTORIA.
   dia, fim de tarde (30), por do sol (65), noite (95) e espaco (150), com sol que se poe, estrelas, estrelas
   cadentes, lua, Terra e planeta com anel; a luz do cenario acompanha. Aprovado pelo usuario. As fases evitam
   multiplos de 20 (aviso de "MAIS RAPIDO!") e a noite vem antes da copa do pinheiro (~110 a ~185 troncos).
+- **Bichos:** tudo desenhado no codigo. Passaro inimigo (`fx_passaro_a/b`, `criarPassaro`) a partir de
+  `troncoPassaros`, com um "!" na borda antes de entrar; nao aparece no espaco. Enfeites atras dos troncos
+  (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
+  do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
 
 ## Ideias guardadas pelo usuario (ainda nao feitas)
 
-- Passarinho inimigo a partir de certa altura.
 - Um final no topo da arvore (ninho do guaxinim + quadrinho final) - sugerido, ainda nao confirmado.
 
 ## Observacoes
 
-- Outro agente (Codex) tambem edita esta pasta: releia os arquivos antes de alterar.
+- Um colega do usuario tambem edita o jogo (por sessoes do Claude Code na nuvem; antes, pelo Codex).
+  Antes de comecar, traga a `main` mais nova; antes de juntar, releia o que mudou e teste de novo.
 - `assets/cenariotops.png` nao e usado pelo jogo.
