@@ -52,6 +52,11 @@ const texturaCenario = {
 };
 // A partir de 160 troncos o jogo para de acelerar (3x a velocidade inicial).
 const velocidadeMaxima = 3;
+// Passaros inimigos aparecem a partir deste tronco; cada bicada derruba alguns granulados.
+const troncoPassaros = 25;
+const granuladosBicada = 3;
+// Granulados que escapam do pacote quando o gato encosta no guaxinim distraido.
+const granuladosSusto = 5;
 // Superficie da grama do chao, onde ficam os pes do gato no comeco.
 // Com essa altura a terra de assets/chao.webp cobre ate a borda de baixo da tela.
 const alturaChao = alturaTela - 44;
@@ -212,6 +217,21 @@ const som = {
     },
     guaxinimPulo() {
         this.tom(420, 0.1, { tipo: 'sine', volume: 0.07, ate: 820 });
+    },
+    // O guaxinim leva um susto e o pacote chacoalha.
+    susto() {
+        this.tom(260, 0.18, { tipo: 'square', volume: 0.08, ate: 1400 });
+        this.ruido(0.16, { volume: 0.18, frequencia: 3200, atraso: 0.05 });
+        this.vibrar(20);
+    },
+    // Dois piados curtos avisam o passaro chegando.
+    alertaPassaro() {
+        [0, 0.12].forEach((atraso) => this.tom(2300, 0.06, { tipo: 'sine', volume: 0.06, ate: 3100, atraso }));
+    },
+    bicada() {
+        this.ruido(0.08, { volume: 0.3, frequencia: 2600 });
+        this.tom(520, 0.25, { tipo: 'triangle', volume: 0.16, ate: 180, atraso: 0.03 });
+        this.vibrar(40);
     },
     feliz() {
         this.tom(784, 0.14, { tipo: 'sine', volume: 0.12 });
@@ -452,6 +472,10 @@ function create(data = {}) {
     this.moedas = this.physics.add.staticGroup();
     this.velocidadeJogo = 1;
     this.sombraGato = null;
+    // O primeiro passaro chega logo depois de o gato alcancar a altura deles.
+    this.passaros = [];
+    this.esperaPassaro = 2500;
+    this.vidaFundo = { esperaBorboleta: 2500, esperaBando: 6000 };
     this.physics.world.gravity.y = config.physics.arcade.gravity.y;
     const cenarioFundo = this.add.container(config.width / 2, config.height)
         .setScrollFactor(0).setDepth(-2);
@@ -548,7 +572,14 @@ function create(data = {}) {
             speedX: { min: -50, max: 50 }, speedY: { min: -60, max: 10 },
             gravityY: 650, rotate: { start: 0, end: 360 },
             scale: { start: 0.022, end: 0.018 }, alpha: { start: 1, end: 0 }
-        }).setDepth(1.6)
+        }).setDepth(1.6),
+        // Penas soltas quando o passaro inimigo bica o gato.
+        penas: this.add.particles(0, 0, 'fx_folha', {
+            emitting: false, lifespan: 900,
+            speed: { min: 40, max: 110 }, gravityY: 120, rotate: { start: 0, end: 540 },
+            scale: { start: 0.55, end: 0.3 }, alpha: { start: 1, end: 0 },
+            tint: [0x4a63b8, 0x34489a, 0xdfe6f7]
+        }).setDepth(5.6)
     };
     criarGuaxinim(this);
 
@@ -725,6 +756,33 @@ function criarTexturasEfeitos(cena) {
     g.fillEllipse(8, 8, 12, 10).fillEllipse(24, 8, 12, 10).fillEllipse(9, 18, 8, 6).fillEllipse(23, 18, 8, 6);
     g.fillStyle(0x3b1a0e).fillRoundedRect(14.5, 3, 3, 20, 1.5);
     g.generateTexture('fx_borboleta', 32, 24);
+    // Passaro inimigo olhando para a direita, em dois quadros de batida de asa.
+    [['fx_passaro_a', [[24, 31], [46, 29], [42, 16], [32, 4], [20, 8]]],
+        ['fx_passaro_b', [[24, 31], [46, 33], [42, 45], [32, 57], [20, 52]]]].forEach(([chave, asa]) => {
+        const contorno = 0x241629;
+        g.clear().lineStyle(3, contorno);
+        g.fillStyle(0x4a63b8).fillTriangle(3, 22, 22, 28, 5, 42).strokeTriangle(3, 22, 22, 28, 5, 42);
+        g.fillStyle(0x4a63b8).fillEllipse(36, 34, 40, 27).strokeEllipse(36, 34, 40, 27);
+        g.fillStyle(0xdfe6f7).fillEllipse(42, 39, 22, 12);
+        g.fillStyle(0x4a63b8).fillTriangle(48, 16, 51, 3, 57, 14).strokeTriangle(48, 16, 51, 3, 57, 14);
+        g.fillStyle(0x4a63b8).fillCircle(56, 25, 13).strokeCircle(56, 25, 13);
+        g.fillStyle(0xf5a623).fillTriangle(67, 21, 79, 27, 67, 32).strokeTriangle(67, 21, 79, 27, 67, 32);
+        g.fillStyle(0xffffff).fillCircle(60, 23, 5.5).lineStyle(1.5, contorno).strokeCircle(60, 23, 5.5);
+        g.fillStyle(contorno).fillCircle(61.5, 24, 2.8);
+        // Sobrancelha brava.
+        g.lineStyle(3.5, contorno).lineBetween(53, 15, 66, 20);
+        const pontos = asa.map(([x, y]) => ({ x, y }));
+        g.fillStyle(0x34489a).fillPoints(pontos, true);
+        g.lineStyle(3, contorno).strokePoints(pontos, true);
+        g.generateTexture(chave, 80, 60);
+    });
+    // Silhueta de passarinho distante para os bandos do fundo; a cor vem do tint.
+    [['fx_ave_fundo_a', [[3, 4], [10, 9], [20, 13], [30, 9], [37, 4]]],
+        ['fx_ave_fundo_b', [[3, 15], [10, 11], [20, 12], [30, 11], [37, 15]]]].forEach(([chave, asas]) => {
+        g.clear().lineStyle(3.5, 0xffffff).strokePoints(asas.map(([x, y]) => ({ x, y })), false);
+        g.fillStyle(0xffffff).fillEllipse(20, 13, 7, 5);
+        g.generateTexture(chave, 40, 20);
+    });
     g.destroy();
 }
 
@@ -752,6 +810,191 @@ function criarBorboletas(cena) {
             });
         };
         voar();
+    });
+}
+
+// Borboletas e bandos de passarinhos passam atras dos troncos, so para enfeitar.
+// Ficam menores e mais apagados que o passaro inimigo, para nao serem confundidos.
+function atualizarVidaFundo(cena, delta) {
+    const fundo = cena.vidaFundo;
+    fundo.esperaBorboleta -= delta;
+    fundo.esperaBando -= delta;
+    if (fundo.esperaBorboleta <= 0) {
+        criarBorboletaFundo(cena);
+        // Mais comuns perto do chao e mais raras no alto da arvore.
+        fundo.esperaBorboleta = cena.contador < 40
+            ? Phaser.Math.Between(4000, 7500) : Phaser.Math.Between(9000, 15000);
+    }
+    if (fundo.esperaBando <= 0) {
+        criarBandoFundo(cena);
+        fundo.esperaBando = cena.contador < 15
+            ? Phaser.Math.Between(11000, 16000) : Phaser.Math.Between(7000, 12000);
+    }
+}
+
+function criarBorboletaFundo(cena) {
+    // Paralaxe parcial: fica entre o cenario e os troncos, descendo devagar quando a camera sobe.
+    const paralaxe = 0.25;
+    const camera = cena.cameras.main;
+    const direcao = Math.random() < 0.5 ? 1 : -1;
+    const inicioX = direcao > 0 ? -20 : config.width + 20;
+    const baseY = Phaser.Math.Between(140, config.height - 200) + camera.scrollY * paralaxe;
+    const subida = Phaser.Math.Between(-60, 40);
+    const zigue = Phaser.Math.FloatBetween(3, 5);
+    const cor = Phaser.Utils.Array.GetRandom([0xffd24a, 0xf6a6c8, 0x9fd3ff, 0xffffff, 0xff9f5a]);
+    const borboleta = cena.add.image(inicioX, baseY, 'fx_borboleta')
+        .setTint(cor).setScale(0.55).setAlpha(0.9).setFlipX(direcao < 0)
+        .setScrollFactor(1, paralaxe).setDepth(-1.5);
+    cena.tweens.add({ targets: borboleta, scaleX: 0.12, duration: 120, yoyo: true, repeat: -1 });
+    cena.tweens.addCounter({
+        from: 0, to: 1, duration: Phaser.Math.Between(7000, 10000),
+        onUpdate: (contagem) => {
+            const t = contagem.getValue();
+            borboleta.x = inicioX + direcao * (config.width + 40) * t;
+            borboleta.y = baseY + subida * t + Math.sin(t * Math.PI * 2 * zigue) * 22;
+        },
+        onComplete: () => {
+            cena.tweens.killTweensOf(borboleta);
+            borboleta.destroy();
+        }
+    });
+}
+
+function criarBandoFundo(cena) {
+    const paralaxe = 0.15;
+    const camera = cena.cameras.main;
+    const direcao = Math.random() < 0.5 ? 1 : -1;
+    const quantidade = Phaser.Math.Between(3, 5);
+    const baseY = Phaser.Math.Between(110, Math.round(config.height * 0.45)) + camera.scrollY * paralaxe;
+    const inicioX = direcao > 0 ? -60 : config.width + 60;
+    // Formacao em V: o primeiro na frente, os outros para tras e para os lados.
+    const aves = [];
+    for (let i = 0; i < quantidade; i++) {
+        const fileira = Math.ceil(i / 2);
+        const lado = i % 2 === 0 ? 1 : -1;
+        aves.push({
+            imagem: cena.add.image(0, 0, 'fx_ave_fundo_a')
+                .setTint(0x3b2f2a).setAlpha(0.55).setScale(Phaser.Math.FloatBetween(0.42, 0.55))
+                .setScrollFactor(1, paralaxe).setDepth(-1.6),
+            atrasX: -direcao * fileira * Phaser.Math.Between(14, 20),
+            ladoY: lado * fileira * Phaser.Math.Between(8, 12),
+            fase: Phaser.Math.FloatBetween(0, 1)
+        });
+    }
+    const duracao = Phaser.Math.Between(9000, 13000);
+    cena.tweens.addCounter({
+        from: 0, to: 1, duration: duracao,
+        onUpdate: (contagem) => {
+            const t = contagem.getValue();
+            const segundos = t * duracao / 1000;
+            const x = inicioX + direcao * (config.width + 120) * t;
+            const y = baseY - 30 * t;
+            aves.forEach((ave) => {
+                const batida = Math.floor((segundos + ave.fase) * 6) % 2;
+                ave.imagem.setTexture(batida ? 'fx_ave_fundo_b' : 'fx_ave_fundo_a')
+                    .setPosition(x + ave.atrasX, y + ave.ladoY + Math.sin(segundos * 2 + ave.fase * 6) * 2);
+            });
+        },
+        onComplete: () => aves.forEach((ave) => ave.imagem.destroy())
+    });
+}
+
+// Passaros inimigos cruzam a tela a partir de certa altura. Um "!" na borda
+// avisa um instante antes; a bicada derruba granulados, mas o jogo continua.
+function atualizarPassaros(cena, delta) {
+    if (cena.contador >= troncoPassaros) {
+        cena.esperaPassaro -= delta;
+        if (cena.esperaPassaro <= 0) {
+            criarPassaro(cena);
+            // Ficam mais frequentes conforme o gato sobe.
+            const intervalo = Phaser.Math.Clamp(9000 - (cena.contador - troncoPassaros) * 45, 3800, 9000);
+            cena.esperaPassaro = Phaser.Math.Between(intervalo - 1200, intervalo + 1200);
+        }
+    }
+    const segundos = delta / 1000;
+    const camera = cena.cameras.main;
+    const corpo = cena.caixa.body;
+    const agora = cena.time.now;
+    const protegido = agora < (cena.caixa.protegidoAte || 0) || agora < (cena.caixa.turboAte || 0);
+    for (let i = cena.passaros.length - 1; i >= 0; i--) {
+        const passaro = cena.passaros[i];
+        const imagem = passaro.imagem;
+        passaro.tempo += segundos;
+        imagem.x += passaro.direcao * passaro.velocidade * segundos;
+        // Depois da bicada ele sobe e vai embora.
+        if (passaro.acertou) passaro.yBase -= 170 * segundos;
+        imagem.y = passaro.yBase + Math.sin(passaro.tempo * 7) * 5;
+        imagem.setTexture(Math.floor(passaro.tempo * 10) % 2 ? 'fx_passaro_b' : 'fx_passaro_a');
+        if (passaro.alerta) {
+            const entrou = passaro.direcao > 0 ? imagem.x > 0 : imagem.x < config.width;
+            if (entrou) {
+                passaro.alerta.destroy();
+                passaro.alerta = null;
+            } else {
+                passaro.alerta.setScale(1 + Math.sin(passaro.tempo * 16) * 0.15);
+            }
+        }
+        if (!passaro.acertou && !protegido && !cena.morreu &&
+            Math.abs(imagem.x - corpo.center.x) < corpo.halfWidth + 16 &&
+            Math.abs(imagem.y - corpo.center.y) < corpo.halfHeight + 10) {
+            bicarGato(cena, passaro);
+        }
+        const saiu = passaro.direcao > 0 ? imagem.x > config.width + 50 : imagem.x < -50;
+        if (saiu || imagem.y > camera.scrollY + config.height + 60) {
+            if (passaro.alerta) passaro.alerta.destroy();
+            imagem.destroy();
+            cena.passaros.splice(i, 1);
+        }
+    }
+}
+
+function criarPassaro(cena) {
+    const camera = cena.cameras.main;
+    const direcao = Math.random() < 0.5 ? 1 : -1;
+    const velocidade = Phaser.Math.Between(130, 170) * cena.velocidadeJogo ** 0.7;
+    // Cruza um pouco acima do gato, na altura por onde ele vai passar no proximo pulo.
+    const y = Phaser.Math.Clamp(cena.caixa.y - Phaser.Math.Between(60, 220),
+        camera.scrollY + 120, camera.scrollY + config.height - 140);
+    // Nasce fora da tela a cerca de um segundo de voo: e o tempo do aviso.
+    const distanciaAviso = velocidade * 1.1;
+    const x = direcao > 0 ? -30 - distanciaAviso : config.width + 30 + distanciaAviso;
+    const imagem = cena.add.image(x, y, 'fx_passaro_a').setScale(0.7)
+        .setFlipX(direcao < 0).setDepth(5.5);
+    const alerta = cena.add.container(direcao > 0 ? 18 : config.width - 18, y, [
+        cena.add.circle(0, 0, 13, 0xd9452f).setStrokeStyle(2.5, 0xfff4d6),
+        cena.add.text(0, 0, '!', {
+            resolution: 4, fontFamily: 'Arial', fontSize: '19px', fontStyle: 'bold', color: '#fff4d6'
+        }).setOrigin(0.5)
+    ]).setDepth(9);
+    cena.passaros.push({ imagem, alerta, direcao, velocidade, yBase: y, tempo: 0, acertou: false });
+    som.alertaPassaro();
+}
+
+function bicarGato(cena, passaro) {
+    passaro.acertou = true;
+    const caixa = cena.caixa;
+    const agora = cena.time.now;
+    // Um instante protegido, piscando, para outra bicada nao vir em seguida.
+    caixa.protegidoAte = agora + 1500;
+    // Empurrao curto para o lado em que o passaro voava.
+    caixa.empurrao = { velocidade: passaro.direcao * 230 * cena.velocidadeJogo, ate: agora + 170 };
+    som.bicada();
+    cena.cameras.main.shake(150, 0.006);
+    deformarGato(cena, 0.8, 1.2, 380);
+    cena.efeitos.penas.explode(7, passaro.imagem.x, passaro.imagem.y);
+    const perdidos = Math.min(granuladosBicada, cena.totalMoedas);
+    if (perdidos > 0) {
+        cena.totalMoedas -= perdidos;
+        atualizarHud(cena);
+        pulsarHud(cena, cena.hud.granulados);
+        cena.efeitos.granulos.explode(perdidos * 2, caixa.x, caixa.y);
+        mostrarPopup(cena, caixa.x, caixa.y - 50, '-' + perdidos, '#ff8a6a', 18);
+    }
+    cena.tweens.killTweensOf(cena.gato);
+    cena.gato.setAlpha(1);
+    cena.tweens.add({
+        targets: cena.gato, alpha: 0.35, duration: 110, yoyo: true, repeat: 6,
+        onComplete: () => cena.gato.setAlpha(1)
     });
 }
 
@@ -1162,7 +1405,10 @@ function criarGuaxinim(cena) {
         escala: 62 / figura.width,
         plataforma: null, deslocX: 0, pulando: false, direcao: -1,
         deformacao: { x: 1, y: 1 }, tempo: 0,
-        proximaProvocacao: 0, vistoEm: 0
+        proximaProvocacao: 0, vistoEm: 0,
+        // Relogio proprio (tempo, em segundos) para a pausa nao gastar a distracao.
+        distraidoAte: 0, proximaDistracao: Phaser.Math.FloatBetween(7, 10),
+        proximaGargalhada: 0, distracoes: 0, dica: null
     };
     const primeiro = cena.plataformas.getChildren().find((plataforma) => plataforma.numero === 1);
     if (primeiro) {
@@ -1181,15 +1427,24 @@ function sortearLadoTronco(plataforma) {
 
 function atualizarVisualGuaxinim(cena) {
     const guaxinim = cena.guaxinim;
-    const respiro = guaxinim.pulando ? 0 : Math.sin(guaxinim.tempo * 5) * 0.03;
+    const distraido = guaxinim.tempo < guaxinim.distraidoAte && !guaxinim.pulando;
+    // Distraido, ele chacoalha de tanto rir.
+    const respiro = guaxinim.pulando ? 0 : distraido
+        ? Math.sin(guaxinim.tempo * 24) * 0.06 : Math.sin(guaxinim.tempo * 5) * 0.03;
     guaxinim.figura.setScale(
         guaxinim.escala * guaxinim.deformacao.x * (1 - respiro / 2),
         guaxinim.escala * guaxinim.deformacao.y * (1 + respiro));
+    guaxinim.visual.angle = distraido ? Math.sin(guaxinim.tempo * 9) * 6 : 0;
     // A arte olha para a direita; o container espelha figura e saco juntos.
     guaxinim.visual.scaleX = guaxinim.direcao;
+    if (guaxinim.dica) {
+        guaxinim.dica.setPosition(guaxinim.visual.x, guaxinim.visual.y + 40 + Math.sin(guaxinim.tempo * 6) * 3);
+    }
 }
 
-// O guaxinim nunca e alcancado: foge sempre um tronco a frente do gato.
+// O guaxinim nunca e pego: foge sempre um tronco a frente do gato. De vez em
+// quando ele se distrai rindo; se o gato encostar nele nessa hora, ele se assusta,
+// solta granulados do pacote e continua fugindo.
 function atualizarGuaxinim(cena, delta) {
     const guaxinim = cena.guaxinim;
     const agora = cena.time.now;
@@ -1199,29 +1454,135 @@ function atualizarGuaxinim(cena, delta) {
     const visivel = guaxinim.visual.y > camera.scrollY + 100 &&
         guaxinim.visual.y < camera.scrollY + config.height;
     if (visivel || guaxinim.pulando) guaxinim.vistoEm = agora;
+    const distraido = guaxinim.tempo < guaxinim.distraidoAte;
+    // A distracao acabou sem o gato encostar: ele percebe e volta a vigiar.
+    if (guaxinim.distraidoAte && !distraido) {
+        encerrarDistracao(guaxinim);
+        if (!guaxinim.pulando) mostrarPopup(cena, guaxinim.visual.x, guaxinim.visual.y - 66, 'opa!', '#f2f2f2', 14);
+    }
     if (!guaxinim.pulando) {
         const plataforma = guaxinim.plataforma;
         if (plataforma && plataforma.active) {
             guaxinim.visual.setPosition(plataforma.x + guaxinim.deslocX, topoTronco(plataforma));
         }
-        // Fica de olho no gato enquanto espera.
-        guaxinim.direcao = cena.caixa.x < guaxinim.visual.x ? -1 : 1;
+        // Fica de olho no gato enquanto espera; distraido, fica de costas para ele.
+        const gatoAEsquerda = cena.caixa.x < guaxinim.visual.x;
+        guaxinim.direcao = gatoAEsquerda !== distraido ? -1 : 1;
         const distancia = cena.caixa.body.bottom - guaxinim.visual.y;
-        // No topo do pulo o gato passa ~113 px abaixo do segundo tronco acima;
-        // fugir so abaixo disso mantem o guaxinim um tronco a frente, e nao dois.
-        if (!plataforma || !plataforma.active ||
-            plataforma.numero <= cena.ultimoTronco || distancia < 105) {
+        if (distraido && encostouNoGuaxinim(cena)) {
+            assustarGuaxinim(cena);
+        } else if (!plataforma || !plataforma.active || plataforma.numero <= cena.ultimoTronco ||
+            (!distraido && distancia < 105)) {
+            // No topo do pulo o gato passa ~113 px abaixo do segundo tronco acima;
+            // fugir so abaixo disso mantem o guaxinim um tronco a frente, e nao dois.
+            // Distraido, ele so percebe o gato quando ele pousa no tronco dele.
+            if (distraido) encerrarDistracao(guaxinim);
             const alvo = escolherFugaGuaxinim(cena);
             if (alvo) pularGuaxinim(cena, alvo);
         } else if (agora - guaxinim.vistoEm > 1500) {
             // Se passou tempo demais fora da tela, volta para um tronco visivel a frente.
+            if (distraido) encerrarDistracao(guaxinim);
             const alvo = escolherTroncoVisivel(cena);
             if (alvo && alvo !== plataforma) pularGuaxinim(cena, alvo);
+        } else if (distraido) {
+            if (guaxinim.tempo > guaxinim.proximaGargalhada) {
+                guaxinim.proximaGargalhada = guaxinim.tempo + 1;
+                mostrarPopup(cena, guaxinim.visual.x, guaxinim.visual.y - 66, 'HAHAHA!', '#f2f2f2', 14);
+                som.risada();
+            }
+        } else if (visivel && distancia > 170 && cena.contador >= 2 &&
+            guaxinim.tempo > guaxinim.proximaDistracao) {
+            distrairGuaxinim(cena);
         } else if (visivel && distancia > 170 && agora > guaxinim.proximaProvocacao) {
             provocarGuaxinim(cena);
         }
     }
     atualizarVisualGuaxinim(cena);
+}
+
+// Ele ri tanto de costas para o gato que da tempo de chegar de fininho.
+function distrairGuaxinim(cena) {
+    const guaxinim = cena.guaxinim;
+    // Dura cerca de um ciclo e meio de pulo, que encurta com a velocidade do jogo.
+    guaxinim.distraidoAte = guaxinim.tempo + 3.2 / cena.velocidadeJogo;
+    guaxinim.proximaGargalhada = guaxinim.tempo;
+    guaxinim.distracoes += 1;
+    // Nas duas primeiras vezes da partida, uma dica embaixo do tronco dele.
+    if (guaxinim.distracoes <= 2) {
+        guaxinim.dica = cena.add.text(guaxinim.visual.x, guaxinim.visual.y + 40, 'encoste nele!', {
+            resolution: 4, fontFamily: 'Arial', fontSize: '14px', fontStyle: 'bold',
+            color: '#ffd24a', stroke: '#2a160d', strokeThickness: 4
+        }).setOrigin(0.5).setDepth(7);
+    }
+}
+
+function encerrarDistracao(guaxinim) {
+    guaxinim.distraidoAte = 0;
+    guaxinim.proximaDistracao = guaxinim.tempo + Phaser.Math.FloatBetween(10, 16);
+    if (guaxinim.dica) {
+        guaxinim.dica.destroy();
+        guaxinim.dica = null;
+    }
+}
+
+// Compara o corpo do gato com o do guaxinim parado no tronco, com uma folga pequena.
+function encostouNoGuaxinim(cena) {
+    const corpo = cena.caixa.body;
+    const guaxinim = cena.guaxinim;
+    const x = guaxinim.visual.x;
+    const pes = guaxinim.visual.y;
+    return corpo.right > x - 26 && corpo.left < x + 26 &&
+        corpo.bottom > pes - 52 && corpo.top < pes + 4;
+}
+
+function assustarGuaxinim(cena) {
+    const guaxinim = cena.guaxinim;
+    encerrarDistracao(guaxinim);
+    const x = guaxinim.visual.x;
+    const y = guaxinim.visual.y;
+    mostrarPopup(cena, x, y - 66, 'EI!', '#ffffff', 18);
+    mostrarPopup(cena, cena.caixa.x, cena.caixa.y - 56, '+' + granuladosSusto, '#ffd24a', 20);
+    som.susto();
+    cena.cameras.main.shake(120, 0.004);
+    // O pacote chacoalha e deixa escapar granulados, que voam ate o gato.
+    const pacoteX = x + guaxinim.direcao * 19;
+    const pacoteY = y - 20;
+    cena.efeitos.brilho.explode(10, pacoteX, pacoteY);
+    for (let i = 0; i < granuladosSusto; i++) soltarGranuladoDoPacote(cena, pacoteX, pacoteY, i);
+    const alvo = escolherFugaGuaxinim(cena);
+    if (alvo) pularGuaxinim(cena, alvo);
+}
+
+function soltarGranuladoDoPacote(cena, x, y, indice) {
+    const granulado = cena.add.image(x, y, 'moeda').setScale(26 / 808).setDepth(6);
+    // Abre em leque para cima e depois cada um voa ate o gato.
+    const angulo = Phaser.Math.DegToRad(-90 + (indice - (granuladosSusto - 1) / 2) * 30 +
+        Phaser.Math.FloatBetween(-8, 8));
+    const alcance = Phaser.Math.FloatBetween(45, 70);
+    cena.tweens.add({
+        targets: granulado,
+        x: x + Math.cos(angulo) * alcance, y: y + Math.sin(angulo) * alcance,
+        angle: Phaser.Math.Between(-180, 180), duration: 280, ease: 'Quad.easeOut',
+        onComplete: () => {
+            const inicioX = granulado.x;
+            const inicioY = granulado.y;
+            cena.tweens.addCounter({
+                from: 0, to: 1, delay: indice * 80, duration: 300, ease: 'Quad.easeIn',
+                onUpdate: (contagem) => {
+                    const t = contagem.getValue();
+                    granulado.setPosition(Phaser.Math.Linear(inicioX, cena.caixa.x, t),
+                        Phaser.Math.Linear(inicioY, cena.caixa.y, t));
+                },
+                onComplete: () => {
+                    granulado.destroy();
+                    if (cena.morreu) return;
+                    somarGranulado(cena);
+                    som.granulado(cena.comboGranulado);
+                    cena.efeitos.brilho.explode(4, cena.caixa.x, cena.caixa.y);
+                }
+            });
+        }
+    });
 }
 
 // O tronco a frente do gato mais proximo dele que aparece inteiro na tela.
@@ -1531,13 +1892,7 @@ function coletarMoeda(caixa, moeda) {
     if (!cena.iniciado || cena.morreu || !moeda.active || moeda.coletada) return;
     moeda.coletada = true;
     moeda.body.enable = false;
-    cena.totalMoedas += 1;
-    // Coletas em sequencia rapida formam um combo sonoro.
-    const agora = cena.time.now;
-    cena.comboGranulado = agora - cena.ultimoGranulado < 1800 ? cena.comboGranulado + 1 : 0;
-    cena.ultimoGranulado = agora;
-    atualizarHud(cena);
-    pulsarHud(cena, cena.hud.granulados);
+    somarGranulado(cena);
     cena.efeitos.brilho.explode(moeda.dourada ? 22 : 8, moeda.x, moeda.y);
     if (moeda.dourada) {
         aplicarImpulsoDourado(caixa);
@@ -1555,6 +1910,16 @@ function coletarMoeda(caixa, moeda) {
         duration: 220, ease: 'Quad.easeOut',
         onComplete: () => efeito.destroy()
     });
+}
+
+function somarGranulado(cena) {
+    cena.totalMoedas += 1;
+    // Coletas em sequencia rapida formam um combo sonoro.
+    const agora = cena.time.now;
+    cena.comboGranulado = agora - cena.ultimoGranulado < 1800 ? cena.comboGranulado + 1 : 0;
+    cena.ultimoGranulado = agora;
+    atualizarHud(cena);
+    pulsarHud(cena, cena.hud.granulados);
 }
 
 function configurarComandoSecreto(cena) {
@@ -1778,6 +2143,8 @@ function update(time, delta) {
     if (!this.iniciado || this.morreu || this.pausado) return;
     atualizarPlataformasMoveis(this, delta);
     atualizarGuaxinim(this, delta);
+    atualizarPassaros(this, delta);
+    atualizarVidaFundo(this, delta);
     if (this.caixa.y - this.caixa.displayHeight / 2 >
         this.cameras.main.scrollY + config.height) {
         mostrarMorte(this);
@@ -1804,7 +2171,12 @@ function update(time, delta) {
     const velocidadeLateral = 200 * this.velocidadeJogo;
     let velocidadeX = 0;
     const ponteiro = this.input.activePointer;
-    if (this.cursors.left.isDown || this.teclasLaterais.A.isDown) {
+    const empurrao = this.caixa.empurrao;
+    const empurrado = empurrao && this.time.now < empurrao.ate;
+    if (empurrado) {
+        // A bicada do passaro manda o gato para o lado por um instante.
+        velocidadeX = empurrao.velocidade;
+    } else if (this.cursors.left.isDown || this.teclasLaterais.A.isDown) {
         velocidadeX = -velocidadeLateral;
     } else if (this.cursors.right.isDown || this.teclasLaterais.D.isDown) {
         velocidadeX = velocidadeLateral;
@@ -1821,7 +2193,7 @@ function update(time, delta) {
     }
 
     this.caixa.body.setVelocityX(velocidadeX);
-    if (Math.abs(velocidadeX) > 20) {
+    if (Math.abs(velocidadeX) > 20 && !empurrado) {
         // As imagens originais olham para a direita; mantem a pose ao parar.
         this.caixa.setFlipX(velocidadeX < 0);
     }
