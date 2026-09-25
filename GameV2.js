@@ -64,7 +64,7 @@ const corMadeiraEscura = 0x382017;
 // Recortes da pagina de quadrinhos (assets/historia.webp, 1333 x 2000), em ordem de leitura.
 const quadrosHistoria = [
     { x: 0, y: 0, largura: 658, altura: 613, efeito: 'feliz',
-        texto: 'Era um dia tranquilo. O gatinho estava todo feliz com seu pacote novo de Granulado de Madeira CassPet.' },
+        texto: 'Era um dia tranquilo. O gatinho estava todo feliz com seu pacote novo de Granulado de Madeira Casspet®.' },
     { x: 676, y: 0, largura: 657, altura: 613, efeito: 'suspense',
         texto: 'Mas alguém estava espiando pela janela...' },
     { x: 0, y: 622, largura: 658, altura: 631, efeito: 'roubo',
