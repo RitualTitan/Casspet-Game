@@ -62,7 +62,6 @@ const superficieChao = 104 / 229;
 const folgaAbaixoGato = 340;
 const chaveRecorde = 'granulando.recorde';
 const chaveMudo = 'granulando.mudo';
-const chaveHistoria = 'granulando.historiaVista';
 const corTexto = '#ffe1a6';
 const corMadeiraEscura = 0x382017;
 // Recortes da pagina de quadrinhos (assets/historia.webp, 1333 x 2000), em ordem de leitura.
@@ -653,13 +652,12 @@ function create(data = {}) {
         musica.definirVelocidade(1);
         musica.tocar();
         // Primeiro apresenta a aproximacao; depois libera o primeiro salto.
-        enquadrarCenario(this, enquadramentoCenario.jogo,
-            data.reiniciar ? 0 : enquadramentoCenario.duracao, () => {
-                this.iniciando = false;
-                this.iniciado = true;
-                this.physics.resume();
-                provocarGuaxinim(this);
-            });
+        enquadrarCenario(this, enquadramentoCenario.jogo, enquadramentoCenario.duracao, () => {
+            this.iniciando = false;
+            this.iniciado = true;
+            this.physics.resume();
+            provocarGuaxinim(this);
+        });
     };
     const comecar = () => {
         if (this.iniciado || this.iniciando || this.avisoInicio || this.vendoHistoria) return;
@@ -671,20 +669,16 @@ function create(data = {}) {
         const telaInicio = this.telaInicio;
         if (data.reiniciar) {
             telaInicio.destroy();
-            iniciarPartida();
-            return;
-        }
-        som.clique();
-        this.tweens.add({
-            targets: telaInicio, alpha: 0, duration: 280, ease: 'Quad.easeOut',
-            onComplete: () => telaInicio.destroy()
-        });
-        // Na primeira partida, os quadrinhos contam por que o gato esta subindo.
-        if (lerArmazenado(chaveHistoria, false) === true) {
-            iniciarPartida();
         } else {
-            mostrarHistoria(this, iniciarPartida, 'Toque para começar!');
+            som.clique();
+            this.tweens.add({
+                targets: telaInicio, alpha: 0, duration: 280, ease: 'Quad.easeOut',
+                onComplete: () => telaInicio.destroy()
+            });
         }
+        // Toda partida nova, inclusive depois de perder, comeca pelos quadrinhos
+        // que contam por que o gato esta subindo; PULAR vai direto para o jogo.
+        mostrarHistoria(this, iniciarPartida, 'Toque para começar!');
     };
     // Somente a placa INICIAR comeca a partida por toque.
     botaoInicio.on('pointerup', comecar);
@@ -1112,7 +1106,6 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
         if (terminou) return;
         terminou = true;
         completarLegenda();
-        salvarArmazenado(chaveHistoria, true);
         cena.input.keyboard.off('keydown', tecla);
         toque.disableInteractive();
         pular.disableInteractive();

@@ -42,7 +42,7 @@ O cenario vem da arte completa de `assets/Cenario Jogo 1.svg` (ceu, tronco e bas
 
 O granulado dourado aparece em intervalos aleatorios de 18 a 30 plataformas e impulsiona o gato como uma mola.
 
-Na primeira partida, uma historia em quadrinhos (`assets/historia.webp`, recortada em 6 quadros por `quadrosHistoria` em `GameV2.js`) explica o jogo: o guaxinim roubou o pacote de Granulado de Madeira Casspet® do gato e fugiu subindo a arvore. Depois ela pode ser revista em CONFIGURACOES > HISTORIA. Para mostrar de novo na primeira partida, apague a chave `granulando.historiaVista` do `localStorage`.
+Toda partida nova, pelo INICIAR ou depois de perder, comeca por uma historia em quadrinhos (`assets/historia.webp`, recortada em 6 quadros por `quadrosHistoria` em `GameV2.js`) que explica o jogo: o guaxinim roubou o pacote de Granulado de Madeira Casspet® do gato e fugiu subindo a arvore. O botao PULAR vai direto para o jogo, e a historia tambem pode ser revista em CONFIGURACOES > HISTORIA.
 
 Durante a partida, o guaxinim (`assets/guaxinim.png`, recorte com fundo transparente de `assets/guaxinim-original.webp`) fica sempre um tronco acima do gato, carregando o pacote e deixando cair granulados. Ele foge quando o gato se aproxima e nunca e alcancado; se ficar mais de 1,5 s fora da tela, volta saltando para um tronco visivel a frente do gato.
 

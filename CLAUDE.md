@@ -20,10 +20,10 @@ Todo o codigo esta em `GameV2.js`; codigo e comentarios em portugues, comentario
 
 ## Historia
 
-Na primeira partida aparecem quadrinhos (`assets/historia.webp`, 6 quadros recortados por `quadrosHistoria`):
-o gato estava feliz com o pacote de granulado, o guaxinim roubou e fugiu subindo a arvore, derrubando
-granulados pelos troncos. Pode ser revista em CONFIGURACOES > HISTORIA. Chave `granulando.historiaVista`
-no `localStorage`.
+Toda partida nova (pelo INICIAR ou depois de perder) comeca pelos quadrinhos (`assets/historia.webp`, 6 quadros
+recortados por `quadrosHistoria`); decisao do usuario. O gato estava feliz com o pacote de granulado, o guaxinim
+roubou e fugiu subindo a arvore, derrubando granulados pelos troncos. PULAR vai direto para o jogo; tambem pode
+ser revista em CONFIGURACOES > HISTORIA.
 
 ## Publicacao
 
