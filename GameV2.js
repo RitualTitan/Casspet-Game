@@ -499,6 +499,8 @@ function create(data = {}) {
     this.velocidadeJogo = 1;
     this.sombraGato = null;
     // O primeiro passaro chega logo depois de o gato alcancar a altura deles.
+    // Os troncos sao criados antes do guaxinim; nao aproveita o da partida anterior.
+    this.guaxinim = null;
     this.passaros = [];
     this.esperaPassaro = 2500;
     this.vidaFundo = { esperaBorboleta: 2500, esperaBando: 6000, esperaVagalume: 0 };
@@ -840,7 +842,8 @@ function criarBorboletas(cena) {
     });
 }
 
-// Bichinhos que passam atras dos troncos, so para enfeitar, de acordo com a fase do ceu:
+// Bichinhos que passam atras dos troncos, so para enfeitar, de acordo com a fase do ceu
+// (os bandos, que estao longe, passam atras ate do tronco da arvore):
 // borboletas de dia e no fim de tarde, bandos de passarinhos ate o por do sol e
 // vaga-lumes a noite. Ficam menores e mais apagados que o passaro inimigo.
 function atualizarVidaFundo(cena, delta) {
@@ -941,7 +944,7 @@ function criarBandoFundo(cena) {
         aves.push({
             imagem: cena.add.image(0, 0, 'fx_ave_fundo_a')
                 .setTint(0x3b2f2a).setAlpha(0.55).setScale(Phaser.Math.FloatBetween(0.42, 0.55))
-                .setScrollFactor(1, paralaxe).setDepth(-1.6),
+                .setScrollFactor(1, paralaxe).setDepth(-2.5),
             atrasX: -direcao * fileira * Phaser.Math.Between(14, 20),
             ladoY: lado * fileira * Phaser.Math.Between(8, 12),
             fase: Phaser.Math.FloatBetween(0, 1)
@@ -1714,6 +1717,7 @@ function pularGuaxinim(cena, alvo) {
         onComplete: () => {
             guaxinim.pulando = false;
             cena.efeitos.poeira.explode(4, guaxinim.visual.x, guaxinim.visual.y);
+            soltarGranuladosDoCaminho(cena, alvo.numero);
             deformacao.x = 1.22;
             deformacao.y = 0.8;
             cena.tweens.add({
@@ -1901,6 +1905,55 @@ function criarMoeda(cena, plataforma, dourada = false) {
     }
     cena.moedas.add(moeda);
     moeda.body.updateFromGameObject();
+    // O granulado so aparece quando o guaxinim passa pelo tronco e ele cai do pacote.
+    const guaxinim = cena.guaxinim;
+    const troncoGuaxinim = guaxinim && guaxinim.plataforma ? guaxinim.plataforma.numero : 1;
+    if (plataforma.numero > troncoGuaxinim) {
+        moeda.escondida = true;
+        moeda.setVisible(false);
+        moeda.body.enable = false;
+        if (moeda.brilho) moeda.brilho.setVisible(false);
+    }
+}
+
+// Solta do pacote os granulados escondidos ate o tronco onde o guaxinim pousou.
+function soltarGranuladosDoCaminho(cena, ateNumero) {
+    const guaxinim = cena.guaxinim;
+    const pacoteX = guaxinim.visual.x + guaxinim.direcao * 19;
+    const pacoteY = guaxinim.visual.y - 20;
+    for (const moeda of cena.moedas.getChildren()) {
+        if (!moeda.escondida || moeda.plataforma.numero > ateNumero) continue;
+        moeda.escondida = false;
+        const revelar = () => {
+            if (!moeda.active) return;
+            moeda.setVisible(true);
+            moeda.body.enable = true;
+            if (moeda.brilho) moeda.brilho.setVisible(true);
+            const escala = moeda.scaleX;
+            moeda.setScale(escala * 0.4);
+            cena.tweens.add({ targets: moeda, scale: escala, duration: 260, ease: 'Back.easeOut' });
+        };
+        // Troncos pulados longe do guaxinim so ganham o granulado no lugar.
+        if (moeda.plataforma !== guaxinim.plataforma) {
+            revelar();
+            continue;
+        }
+        // O granulado salta do pacote ate o meio do tronco.
+        const voando = cena.add.image(pacoteX, pacoteY, moeda.texture.key).setScale(moeda.scaleX * 0.6).setDepth(2);
+        cena.tweens.addCounter({
+            from: 0, to: 1, duration: 360,
+            onUpdate: (contagem) => {
+                const t = contagem.getValue();
+                voando.setPosition(Phaser.Math.Linear(pacoteX, moeda.x, t),
+                    Phaser.Math.Linear(pacoteY, moeda.y, t) - 40 * 4 * t * (1 - t))
+                    .setAngle(t * 360);
+            },
+            onComplete: () => {
+                voando.destroy();
+                revelar();
+            }
+        });
+    }
 }
 
 function atualizarBrilhoGranulado(moeda, tempo) {
