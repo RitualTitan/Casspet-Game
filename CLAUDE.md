@@ -54,8 +54,8 @@ ser revista em CONFIGURACOES > HISTORIA.
   da grama e `superficieChao` a linha da grama dentro da imagem.
 - Guaxinim: `assets/guaxinim.png` (recorte transparente de `guaxinim-original.webp`); o pacote que ele
   carrega e a textura `fx_saco`, desenhada no codigo. Expressoes (geradas no Magnific, mesmo tamanho):
-  `guaxinim-rindo.png` (provocando e distraido; segura o pacote na mao, entao o `fx_saco` some) e
-  `guaxinim-susto.png` (depois do susto).
+  `guaxinim-rindo.png` (provocando e distraido) e `guaxinim-susto.png` (depois do susto), de quatro patas
+  como o original e com o mesmo corpo (decisao do usuario: nada de guaxinim em pe ou menor).
 - Gato: o parado (`mascote_1`) usa `assets/gato-parado.webp`, redesenhado no estilo das outras poses (o antigo,
   mais escuro, e `mascote_1.png`). `gato-machucado.webp` (tonto) aparece ~0,5 s quando o passaro/OVNI acerta.
 - A textura `introducao` (arte do menu) tem recortes (`madeiraLoja`); ao usar a arte inteira, passe o

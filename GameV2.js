@@ -1835,8 +1835,6 @@ function atualizarVisualGuaxinim(cena) {
     const expressao = distraido ? 'guaxinim_rindo'
         : guaxinim.tempo < guaxinim.expressaoAte ? guaxinim.expressao : 'guaxinim';
     if (guaxinim.figura.texture.key !== expressao) guaxinim.figura.setTexture(expressao);
-    // Rindo ele segura o pacote na mao desenhada; nas outras poses o pacote fica junto do corpo.
-    guaxinim.saco.setVisible(expressao !== 'guaxinim_rindo');
     // Distraido, ele chacoalha de tanto rir.
     const respiro = guaxinim.pulando ? 0 : distraido
         ? Math.sin(guaxinim.tempo * 24) * 0.06 : Math.sin(guaxinim.tempo * 5) * 0.03;
