@@ -1,4 +1,4 @@
-# Granulando (CassPads) - contexto para o Claude
+# Granulando (Casspet®) - contexto para o Claude
 
 Jogo 2D de subir pulando: o gato pula sozinho de tronco em tronco numa arvore gigante,
 o jogador so move para os lados e coleta granulados. Phaser 3.90 por CDN, sem build.
