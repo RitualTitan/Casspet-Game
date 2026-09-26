@@ -1,14 +1,22 @@
 
-// Limita o custo de preenchimento no celular, preservando o mundo de 360 de largura.
 const telaDeToque = window.matchMedia('(pointer: coarse)').matches;
-const escalaRenderizacao = telaDeToque ? 1.5 : 2;
 // A altura do mundo acompanha o formato da tela: 640 em 9:16 e ate 860 nos
 // celulares mais altos. Telas mais largas que 9:16 ganham faixas nas laterais.
 const alturaTela = medirAlturaTela();
+// Desenha perto da resolucao real da tela (pixels do aparelho), para os contornos ficarem lisos
+// em vez de esticados e serrilhados. O teto de 2,5 limita o custo de preenchimento no celular.
+const escalaRenderizacao = medirEscalaRenderizacao();
+// As poses do gato e dos bichos tem 512 x 512; as posicoes em cabecaGato estao numa grade de 2048.
+const tamanhoPose = 512;
+// Largura da textura do granulado (assets/granulado.webp e o dourado, carregado nesse tamanho).
+const larguraGranulado = 256;
+// As tabuas de madeira sao desenhadas em 3x e exibidas com escala 1/3, para ficarem nitidas.
+const escalaMadeira = 3;
 // "1 granulado", "2 granulados".
 const contar = (quantidade, palavra) => `${quantidade} ${palavra}${quantidade === 1 ? '' : 's'}`;
 const config = {
     type: Phaser.AUTO,
+    render: { mipmapFilter: 'LINEAR_MIPMAP_LINEAR' },
     parent: 'jogo',
     width: 360,
     height: alturaTela,
@@ -130,7 +138,7 @@ const itensLoja = {
     ]
 };
 // As 4 poses: chave da textura do gato e nome do arquivo de cada bicho em assets/bichos/<id>/.
-// As imagens dos bichos tem 2048 x 2048, como as do gato, com os pes na mesma altura.
+// As imagens dos bichos tem 512 x 512, como as do gato, com os pes na mesma altura.
 const posesBicho = { mascote_1: 'parado', quasePulando: 'quasePulando', pulando: 'pulando', caindo: 'caindo' };
 // Onde cada acessorio fica em cada pose do gato, em pixels das imagens de 2048: topo da
 // cabeca, meio dos olhos e pescoco, a largura da cabeca e a inclinacao dela.
@@ -167,6 +175,14 @@ const quadrosHistoria = [
         texto: 'Mas esse gatinho não desiste! Pule de tronco em tronco, recupere os granulados e alcance o guaxinim!' }
 ];
 const game = new Phaser.Game(config);
+
+function medirEscalaRenderizacao() {
+    const area = document.getElementById('jogo');
+    const largura = (area && area.clientWidth) || window.innerWidth;
+    const altura = (area && area.clientHeight) || window.innerHeight;
+    const pixels = Math.min(largura / 360, altura / alturaTela) * (window.devicePixelRatio || 1);
+    return Phaser.Math.Clamp(Math.round(pixels * 4) / 4, telaDeToque ? 1.5 : 2, 2.5);
+}
 
 function medirAlturaTela() {
     const area = document.getElementById('jogo');
@@ -554,22 +570,23 @@ function preload() {
     for (let i = 0; i < quantidadeFaixas; i++) {
         this.load.image('cenario_' + i, `assets/cenario/cenario-${i}.webp`);
     }
-    this.load.svg('troncoLiso', 'assets/tronco liso.svg');
-    this.load.svg('troncoRachado', 'assets/tronco rachado.svg');
+    // Os SVGs dos troncos sao rasterizados no tamanho em que aparecem (e nao nos 1150 px originais).
+    this.load.svg('troncoLiso', 'assets/tronco liso.svg', { width: 384, height: 86 });
+    this.load.svg('troncoRachado', 'assets/tronco rachado.svg', { width: 384, height: 86 });
     // Gato parado redesenhado no mesmo estilo das outras poses (o antigo, mais escuro, e assets/mascote_1.png).
-    this.load.image('mascote_1', 'assets/gato-parado.webp');
+    this.load.image('mascote_1', 'assets/gato/parado.webp');
     // Tonto, com estrelinhas: aparece um instante quando o passaro ou o OVNI acerta.
-    this.load.image('machucado', 'assets/gato-machucado.webp');
-    this.load.image('pulando', 'assets/pulando.png');
-    this.load.image('quasePulando', 'assets/3quasepualndo.png');
-    this.load.image('caindo', 'assets/caindo.png');
+    this.load.image('machucado', 'assets/gato/machucado.webp');
+    this.load.image('pulando', 'assets/gato/pulando.webp');
+    this.load.image('quasePulando', 'assets/gato/quasePulando.webp');
+    this.load.image('caindo', 'assets/gato/caindo.webp');
     itensLoja.bichos.filter((bicho) => bicho.arte).forEach((bicho) => {
         Object.entries(posesBicho).forEach(([pose, arquivo]) =>
             this.load.image(bicho.id + '_' + pose, bicho.arte + arquivo + '.webp'));
     });
-    this.load.image('moeda', 'assets/moeda-jogo.png');
-    this.load.svg('moedaDourada', 'assets/granulado-dourado.svg');
-    this.load.image('introducao', 'assets/inicio2.png');
+    this.load.image('moeda', 'assets/granulado.webp');
+    this.load.svg('moedaDourada', 'assets/granulado-dourado.svg', { width: larguraGranulado, height: larguraGranulado });
+    this.load.image('introducao', 'assets/inicio.webp');
     this.load.image('historia', 'assets/historia.webp');
     // Recorte com fundo transparente de assets/guaxinim-original.webp.
     this.load.image('guaxinim', 'assets/guaxinim.png');
@@ -646,7 +663,8 @@ function create(data = {}) {
     vestirGato(this, this.gato);
     atualizarCenario(this, 0);
     this.physics.add.existing(this.caixa);
-    this.caixa.body.setSize(1200, 1400);
+    // Corpo em pixels da textura de 512 (o mesmo que 1200 x 1400 na grade de 2048).
+    this.caixa.body.setSize(tamanhoPose * 1200 / 2048, tamanhoPose * 1400 / 2048);
     // Roda depois da fisica, para o gato nunca ficar um quadro atrasado.
     const sincronizar = (tempo, delta) => sincronizarGato(this, delta);
     this.events.on('postupdate', sincronizar);
@@ -709,7 +727,7 @@ function create(data = {}) {
             emitting: false, lifespan: 1100,
             speedX: { min: -50, max: 50 }, speedY: { min: -60, max: 10 },
             gravityY: 650, rotate: { start: 0, end: 360 },
-            scale: { start: 0.022, end: 0.018 }, alpha: { start: 1, end: 0 }
+            scale: { start: 18 / larguraGranulado, end: 14.5 / larguraGranulado }, alpha: { start: 1, end: 0 }
         }).setDepth(1.6),
         // Penas soltas quando o passaro inimigo bica o gato.
         penas: this.add.particles(0, 0, 'fx_folha', {
@@ -1439,11 +1457,11 @@ function criarHud(cena) {
     // Sombra suave embaixo de cada peca, para destacar do tronco laranja atras.
     const sombra = (largura, altura, raio) => cena.add.graphics().fillStyle(0x1a0e08, 0.35)
         .fillRoundedRect(-largura / 2 + 1, -altura / 2 + 3, largura - 2, altura, raio);
-    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 116, 40, { raio: 14 })).setScale(0.5);
-    const icone = cena.add.image(-34, 0, 'moeda').setScale(26 / 808).setAngle(-12);
+    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 116, 40, { raio: 14 })).setScale(1 / escalaMadeira);
+    const icone = cena.add.image(-34, 0, 'moeda').setScale(26 / larguraGranulado).setAngle(-12);
     const texto = cena.add.text(-16, 1, '0', estiloNumero(19)).setOrigin(0, 0.5);
     const granulados = fixo(cena.add.container(180, 26, [sombra(112, 36, 13), fundo, icone, texto]));
-    const fundoTroncos = cena.add.image(0, 0, texturaMadeira(cena, 88, 32, { raio: 11, escurecer: 0.12 })).setScale(0.5);
+    const fundoTroncos = cena.add.image(0, 0, texturaMadeira(cena, 88, 32, { raio: 11, escurecer: 0.12 })).setScale(1 / escalaMadeira);
     const iconeTroncos = cena.add.image(-24, 0, 'ic_tronco').setScale(0.46);
     const textoTroncos = cena.add.text(-12, 1, '0', estiloNumero(15)).setOrigin(0, 0.5);
     const troncos = fixo(cena.add.container(56, 26, [sombra(84, 28, 10), fundoTroncos, iconeTroncos, textoTroncos]));
@@ -1464,7 +1482,7 @@ function criarHud(cena) {
 
 // Botao redondo de madeira com um icone claro desenhado por cima.
 function criarBotaoHud(cena, x, desenharIcone, acao) {
-    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 40, 40, { raio: 18 })).setScale(0.5);
+    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 40, 40, { raio: 18 })).setScale(1 / escalaMadeira);
     const icone = cena.add.graphics();
     const sombra = cena.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 18);
     const botao = cena.add.container(x, 26, [sombra, fundo, icone]).setSize(44, 44)
@@ -1543,13 +1561,13 @@ function voarParaPlacar(cena, x, y, textura, escala) {
         .setScrollFactor(0).setDepth(11);
     const destinoX = hud.granulados.x + hud.icone.x;
     cena.tweens.add({
-        targets: voando, x: destinoX, y: hud.granulados.y, scale: 26 / 808, angle: 360,
+        targets: voando, x: destinoX, y: hud.granulados.y, scale: 26 / larguraGranulado, angle: 360,
         duration: 420, ease: 'Quad.easeIn',
         onComplete: () => {
             voando.destroy();
             cena.tweens.killTweensOf(hud.icone);
-            hud.icone.setScale(26 / 808 * 1.5);
-            cena.tweens.add({ targets: hud.icone, scale: 26 / 808, duration: 260, ease: 'Back.easeOut' });
+            hud.icone.setScale(26 / larguraGranulado * 1.5);
+            cena.tweens.add({ targets: hud.icone, scale: 26 / larguraGranulado, duration: 260, ease: 'Back.easeOut' });
         }
     });
 }
@@ -1999,7 +2017,7 @@ function assustarGuaxinim(cena) {
 }
 
 function soltarGranuladoDoPacote(cena, x, y, indice) {
-    const granulado = cena.add.image(x, y, 'moeda').setScale(26 / 808).setDepth(6);
+    const granulado = cena.add.image(x, y, 'moeda').setScale(26 / larguraGranulado).setDepth(6);
     // Abre em leque para cima e depois cada um voa ate o gato.
     const angulo = Phaser.Math.DegToRad(-90 + (indice - (granuladosSusto - 1) / 2) * 30 +
         Phaser.Math.FloatBetween(-8, 8));
@@ -2156,7 +2174,7 @@ function mostrarMorte(cena) {
         .lineStyle(3, 0xffe1a6, 0.9).strokeRoundedRect(-150, -170, 300, 340, 20);
     const titulo = cena.add.text(0, -132, 'Você perdeu',
         estilo(30, corTexto, { fontStyle: 'bold' })).setOrigin(0.5);
-    const icone = cena.add.image(0, -72, 'moeda').setScale(40 / 808);
+    const icone = cena.add.image(0, -72, 'moeda').setScale(40 / larguraGranulado);
     const pontos = cena.add.text(0, -72, '0',
         estilo(36, '#ffffff', { fontStyle: 'bold' })).setOrigin(0, 0.5);
     const centralizarPontos = () => {
@@ -2298,7 +2316,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
 
 function criarMoeda(cena, plataforma, dourada = false) {
     const moeda = cena.add.image(plataforma.x, plataforma.y - 60, dourada ? 'moedaDourada' : 'moeda')
-        .setScale(38 / 808).setDepth(2);
+        .setScale(38 / larguraGranulado).setDepth(2);
     moeda.dourada = dourada;
     moeda.plataforma = plataforma;
     moeda.yBase = moeda.y;
@@ -2873,7 +2891,7 @@ function criarEstrelaCadente(cena) {
 function texturaMadeira(cena, largura, altura, { raio = 12, escurecer = 0, borda = 0x4d2710 } = {}) {
     const chave = `madeira_${largura}_${altura}_${raio}_${escurecer}_${borda}`;
     if (cena.textures.exists(chave)) return chave;
-    const e = 2;
+    const e = escalaMadeira;
     const textura = cena.textures.createCanvas(chave, largura * e, altura * e);
     const ctx = textura.getContext();
     const fonte = cena.textures.get('introducao').getSourceImage();
@@ -2912,7 +2930,7 @@ function texturaMadeira(cena, largura, altura, { raio = 12, escurecer = 0, borda
 // Botao de madeira com texto; da um pulinho ao toque. cor pinta a madeira (0xffffff = natural).
 function criarBotaoMadeira(cena, x, y, largura, altura, texto, acao, { tamanho = 17, cor = 0xffffff } = {}) {
     const fundo = cena.add.image(0, 0, texturaMadeira(cena, largura, altura, { raio: Math.min(14, altura / 2 - 2) }))
-        .setScale(0.5).setTint(cor);
+        .setScale(1 / escalaMadeira).setTint(cor);
     const rotulo = cena.add.text(0, 1, texto, {
         resolution: 4, fontFamily: 'Arial Black, Arial, sans-serif', fontSize: tamanho + 'px', fontStyle: 'bold',
         color: '#4d2710', stroke: '#f6c98f', strokeThickness: 3
@@ -2971,14 +2989,14 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
     const cordas = fixo(cena.add.graphics());
     cordas.lineStyle(4, 0xc99a5b).lineBetween(118, -10, 118, 24).lineBetween(242, -10, 242, 24);
     const placa = fixo(cena.add.container(180, 42, [
-        cena.add.image(0, 0, texturaMadeira(cena, 190, 54, { raio: 14 })).setScale(0.5),
+        cena.add.image(0, 0, texturaMadeira(cena, 190, 54, { raio: 14 })).setScale(1 / escalaMadeira),
         cena.add.text(0, 1, 'LOJA', estiloPlaca(28)).setOrigin(0.5)
     ]));
     cena.tweens.add({ targets: placa, angle: { from: -1.5, to: 1.5 }, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
     // Cofrinho num pergaminho.
     const fundoSaldo = fixo(cena.add.graphics());
-    const iconeSaldo = fixo(cena.add.image(0, 90, 'moeda').setScale(22 / 808));
+    const iconeSaldo = fixo(cena.add.image(0, 90, 'moeda').setScale(22 / larguraGranulado));
     const textoSaldo = fixo(cena.add.text(0, 91, '', estilo(15, '#4d2710', { fontStyle: 'bold' })).setOrigin(0, 0.5));
     const atualizarSaldo = () => {
         textoSaldo.setText(contar(loja.saldo, 'granulado'));
@@ -2992,15 +3010,15 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
     atualizarSaldo();
     const pularSaldo = () => {
         cena.tweens.killTweensOf([iconeSaldo, textoSaldo]);
-        iconeSaldo.setScale(22 / 808 * 1.4);
-        cena.tweens.add({ targets: iconeSaldo, scale: 22 / 808, duration: 350, ease: 'Back.easeOut' });
+        iconeSaldo.setScale(22 / larguraGranulado * 1.4);
+        cena.tweens.add({ targets: iconeSaldo, scale: 22 / larguraGranulado, duration: 350, ease: 'Back.easeOut' });
     };
 
     const abas = [['bichos', 'Bichos'], ['pelagens', 'Pelagens'], ['acessorios', 'Acessórios']];
     let abaAtual = 'bichos';
     const botoesAbas = abas.map(([grupo, nome], i) => {
         const x = 64 + i * 116;
-        const fundo = cena.add.image(0, 0, texturaMadeira(cena, 110, 36, { raio: 10 })).setScale(0.5);
+        const fundo = cena.add.image(0, 0, texturaMadeira(cena, 110, 36, { raio: 10 })).setScale(1 / escalaMadeira);
         const texto = cena.add.text(0, 1, nome, estiloPlaca(13)).setOrigin(0.5);
         const aba = fixo(cena.add.container(x, 132, [fundo, texto]).setSize(110, 36).setScrollFactor(0)
             .setInteractive({ useHandCursor: true }));
@@ -3026,7 +3044,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
     // Chuva de granulados saindo do cartao comprado.
     const comemorar = (x, y) => {
         for (let i = 0; i < 12; i++) {
-            const granulado = cena.add.image(x, y, 'moeda').setScale(20 / 808).setAngle(Phaser.Math.Between(0, 360));
+            const granulado = cena.add.image(x, y, 'moeda').setScale(20 / larguraGranulado).setAngle(Phaser.Math.Between(0, 360));
             tela.add(granulado);
             const angulo = Phaser.Math.DegToRad(Phaser.Math.Between(200, 340));
             const alcance = Phaser.Math.Between(40, 90);
@@ -3099,7 +3117,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
             cartoes.add(cartao);
             const fundo = cena.add.image(0, 0, texturaMadeira(cena, 164, alturaCartao, {
                 raio: 14, escurecer: item.emBreve ? 0.55 : 0.28, borda: usando ? 0xffc629 : 0x4d2710
-            })).setScale(0.5);
+            })).setScale(1 / escalaMadeira);
             fundo.setSize(164, alturaCartao);
             cartao.add(fundo);
             cartao.setSize(164, alturaCartao).setScrollFactor(0).setInteractive({ useHandCursor: true });
@@ -3117,7 +3135,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
                 // Os pes ficam a 84% da altura da imagem; na aba de bichos a figura e menor,
                 // porque as orelhas do coelho sao mais altas.
                 const figura = cena.add.image(0, alturaCartao * 0.07, texturaPose(cena, 'mascote_1', provador))
-                    .setOrigin(0.5, 0.84).setScale(alturaCartao * (abaAtual === 'bichos' ? 0.74 : 0.84) / 2048);
+                    .setOrigin(0.5, 0.84).setScale(alturaCartao * (abaAtual === 'bichos' ? 0.74 : 0.84) / tamanhoPose);
                 vestirGato(cena, figura, provador);
                 cartao.add(figura);
                 if (figura.acessorio) cartao.add(figura.acessorio);
@@ -3138,7 +3156,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
             const texto = cena.add.text(0, yBotao + 1, rotulo, estilo(13, corTextoBotao, { fontStyle: 'bold' })).setOrigin(0.5);
             if (!tem && !item.emBreve) {
                 texto.x = 9;
-                cartao.add(cena.add.image(texto.x - texto.width / 2 - 13, yBotao, 'moeda').setScale(18 / 808));
+                cartao.add(cena.add.image(texto.x - texto.width / 2 - 13, yBotao, 'moeda').setScale(18 / larguraGranulado));
             }
             cartao.add(texto);
             // Os cartoes entram em sequencia; o escolhido agora da um pulo.
@@ -3200,13 +3218,15 @@ function posicionarAcessorio(gato) {
         ? [(cabeca.topo[0] + cabeca.pescoco[0]) / 2, (cabeca.topo[1] + cabeca.pescoco[1]) / 2]
         : cabeca[encaixe.ponto];
     const espelhado = gato.flipX;
-    const localX = ((espelhado ? 2048 - ponto[0] : ponto[0]) - 2048 * gato.originX) * Math.abs(gato.scaleX);
-    const localY = (ponto[1] - 2048 * gato.originY) * gato.scaleY;
+    // cabecaGato usa uma grade de 2048; k converte para os pixels da textura atual.
+    const k = gato.frame.width / 2048;
+    const localX = ((espelhado ? 2048 - ponto[0] : ponto[0]) - 2048 * gato.originX) * k * Math.abs(gato.scaleX);
+    const localY = (ponto[1] - 2048 * gato.originY) * k * gato.scaleY;
     const giro = Phaser.Math.DegToRad(gato.angle);
     acessorio.setPosition(
         gato.x + localX * Math.cos(giro) - localY * Math.sin(giro),
         gato.y + localX * Math.sin(giro) + localY * Math.cos(giro));
-    const escala = encaixe.largura * cabeca.largura * Math.abs(gato.scaleX) / acessorio.frame.width;
+    const escala = encaixe.largura * cabeca.largura * k * Math.abs(gato.scaleX) / acessorio.frame.width;
     acessorio.setScale(escala, escala * gato.scaleY / Math.abs(gato.scaleX))
         .setFlipX(espelhado).setAngle(gato.angle + (espelhado ? -cabeca.angulo : cabeca.angulo))
         .setAlpha(gato.alpha).setVisible(gato.visible);

@@ -58,8 +58,15 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   carrega e a textura `fx_saco`, desenhada no codigo. Expressoes (geradas no Magnific, mesmo tamanho):
   `guaxinim-rindo.png` (provocando e distraido) e `guaxinim-susto.png` (depois do susto), de quatro patas
   como o original e com o mesmo corpo (decisao do usuario: nada de guaxinim em pe ou menor).
-- Gato: o parado (`mascote_1`) usa `assets/gato-parado.webp`, redesenhado no estilo das outras poses (o antigo,
-  mais escuro, e `mascote_1.png`). `gato-machucado.webp` (tonto) aparece ~0,5 s quando o passaro/OVNI acerta.
+- Gato: as poses usadas estao em `assets/gato/*.webp` (512 x 512, reduzidas com boa qualidade dos originais de
+  2048 que continuam em `assets/`: `gato-parado.webp`, `3quasepualndo.png`, `pulando.png`, `caindo.png`,
+  `gato-machucado.webp`). O parado foi redesenhado no estilo das outras poses (o antigo, mais escuro, e
+  `mascote_1.png`). O machucado (tonto) aparece ~0,5 s quando o passaro/OVNI acerta.
+- **Nitidez e peso:** o jogo desenha perto da resolucao real da tela (`escalaRenderizacao`, ate 2,5x) e as
+  imagens tem o tamanho em que aparecem: poses 512 (`tamanhoPose`; `cabecaGato` e o corpo fisico usam a
+  grade de 2048 convertida), granulado 256 (`assets/granulado.webp`, `larguraGranulado`), menu
+  `assets/inicio.webp` (de `inicio2.png`), troncos SVG rasterizados em 384 x 86. Madeira desenhada em 3x
+  (`escalaMadeira`). Imagem nova de personagem: 512 x 512 webp, nunca a original enorme.
 - A textura `introducao` (arte do menu) tem recortes (`madeiraLoja`); ao usar a arte inteira, passe o
   frame `'__BASE'`, senao o Phaser usa o primeiro recorte.
 - Sons e musica sao sintetizados com Web Audio (objetos `som`, `musica` e `trilha`), sem arquivos de audio.
@@ -101,7 +108,7 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 - `itensLoja`: **bichos** (o foco, decisao do usuario: animais que tambem usam o granulado - coelho, hamster,
   passaro, porquinho-da-india, iguana), **pelagens** (tint sobre o gato; so escurece ou muda o tom) e
   **acessorios** desenhados no codigo (`ac_*`), presos na cabeca por `cabecaGato` em cada uma das 4 poses.
-- Bichos com arte ficam em `assets/bichos/<id>/` (parado, quasePulando, pulando, caindo `.webp`, 2048 x 2048,
+- Bichos com arte ficam em `assets/bichos/<id>/` (parado, quasePulando, pulando, caindo `.webp`, 512 x 512,
   pes alinhados com os do gato: o corpo fisico usa essa medida). `texturaPose` troca as poses do gato pelas do
   bicho escolhido. Pelagens e acessorios valem so para o gato. O **coelho** ja tem arte; os outros estao
   "em breve".
