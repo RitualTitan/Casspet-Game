@@ -36,7 +36,25 @@
 </head>
 <body>
   <div id="jogo"></div>
+  <!-- Se algum erro travar o jogo, mostra o motivo (para mandar print) e um botao para recarregar. -->
+  <div id="erro" hidden style="position:fixed;left:16px;right:16px;top:50%;transform:translateY(-50%);z-index:9;
+    padding:18px;border-radius:14px;background:#3b2418;border:2px solid #ffe1a6;color:#ffe1a6;
+    font:15px/1.4 Arial,sans-serif;text-align:center">
+    <b style="font-size:18px">O jogo travou</b>
+    <p id="erro-texto" style="margin:10px 0 14px;font-size:12px;color:#f4ddc9;word-break:break-word"></p>
+    <button type="button" onclick="location.reload()" style="font:bold 16px Arial,sans-serif;color:#4d2710;
+      background:#f4c58a;border:2px solid #4d2710;border-radius:10px;padding:10px 22px">RECARREGAR</button>
+  </div>
+  <script>
+    window.addEventListener('error', function (evento) {
+      var caixa = document.getElementById('erro');
+      if (!caixa.hidden) return;
+      document.getElementById('erro-texto').textContent =
+        (evento.message || 'erro desconhecido') + (evento.lineno ? ' (linha ' + evento.lineno + ')' : '');
+      caixa.hidden = false;
+    });
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.90/dist/phaser.min.js"></script>
-  <script src="GameV2.js?v=casspet-15"></script>
+  <script src="GameV2.js?v=casspet-17"></script>
 </body>
 </html>
