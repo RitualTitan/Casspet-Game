@@ -60,8 +60,15 @@ ser revista em CONFIGURACOES > HISTORIA.
   dia, fim de tarde (30), por do sol (65), noite (95) e espaco (150), com sol que se poe, estrelas, estrelas
   cadentes, lua, Terra e planeta com anel; a luz do cenario acompanha. Aprovado pelo usuario. As fases evitam
   multiplos de 20 (aviso de "MAIS RAPIDO!") e a noite vem antes da copa do pinheiro (~110 a ~185 troncos).
+- **Titulos de fase** ("FIM DE TARDE", "ESPACO!"): desligados em teste pelo interruptor `mostrarAvisosCeu`.
+- **Espaco em movimento:** Terra, Lua e planeta com anel descem e ficam para tras; `atualizarEspaco` solta
+  planetas, asteroides, nebulosas, satelite e o **Planeta Casspet** (cor de granulado, cratera de patinha e anel
+  de granulados), que descem com a subida e derivam sozinhos, a partir de `troncoFimCopa` (quando a copa
+  do pinheiro sai da tela). As folhas param de cair no espaco. No espaco,
+  dois a cada tres troncos se mexem, e mais longe.
 - **Bichos:** tudo desenhado no codigo. Passaro inimigo (`fx_passaro_a/b`, `criarPassaro`) a partir de
-  `troncoPassaros`, com um "!" na borda antes de entrar; nao aparece no espaco. Enfeites atras dos troncos
+  `troncoPassaros`, com um "!" na borda antes de entrar. No espaco viram **OVNIs** (`fx_ovni_a/b`): balancam,
+  as vezes param no meio e disparam, ficam mais frequentes e vem em dupla, para o jogador nao decorar o padrao. Enfeites atras dos troncos
   (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
   do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
 
