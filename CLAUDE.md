@@ -63,7 +63,8 @@ ser revista em CONFIGURACOES > HISTORIA.
 - **Titulos de fase** ("FIM DE TARDE", "ESPACO!"): desligados em teste pelo interruptor `mostrarAvisosCeu`.
 - **Espaco em movimento:** Terra, Lua e planeta com anel descem e ficam para tras; `atualizarEspaco` solta
   planetas, asteroides, nebulosas, satelite e o **Planeta Casspet** (cor de granulado, cratera de patinha e anel
-  de granulados), que descem com a subida e derivam sozinhos. As folhas param de cair no espaco. No espaco,
+  de granulados), que descem com a subida e derivam sozinhos, a partir de `troncoFimCopa` (quando a copa
+  do pinheiro sai da tela). As folhas param de cair no espaco. No espaco,
   dois a cada tres troncos se mexem, e mais longe.
 - **Bichos:** tudo desenhado no codigo. Passaro inimigo (`fx_passaro_a/b`, `criarPassaro`) a partir de
   `troncoPassaros`, com um "!" na borda antes de entrar. No espaco viram **OVNIs** (`fx_ovni_a/b`): balancam,

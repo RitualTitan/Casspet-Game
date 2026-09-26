@@ -80,6 +80,8 @@ const fasesCeu = [
 ];
 // A ultima fase e o espaco.
 const faseEspaco = fasesCeu.length - 1;
+// A copa do pinheiro sai de cima da tela por volta deste tronco; so dai o espaco comeca a andar.
+const troncoFimCopa = 175;
 // A partir de 160 troncos o jogo para de acelerar (3x a velocidade inicial).
 const velocidadeMaxima = 3;
 // Passaros inimigos aparecem a partir deste tronco; cada bicada derruba alguns granulados.
@@ -2358,7 +2360,7 @@ function desenharPatinha(g, x, y, escala, cor) {
 
 // Objetos do espaco descem conforme o gato sobe (os maiores, mais perto, descem mais
 // rapido), giram e derivam devagar, para o fundo nunca ficar parado.
-function atualizarEspaco(cena, delta, espaco) {
+function atualizarEspaco(cena, delta, espaco, soltar) {
     if (!cena.espaco) cena.espaco = { objetos: [], distancia: 0, criados: 0, ultimoScroll: cena.cameras.main.scrollY };
     const estado = cena.espaco;
     const scroll = cena.cameras.main.scrollY;
@@ -2371,7 +2373,7 @@ function atualizarEspaco(cena, delta, espaco) {
         if (folhas.emitting) folhas.stop();
         else folhas.start();
     }
-    if (espaco > 0.5 && cena.iniciado) {
+    if (soltar && cena.iniciado) {
         estado.distancia += subida * 0.3 + segundos * 12;
         if (estado.distancia > (estado.proximo || 120)) {
             estado.distancia = 0;
@@ -2512,14 +2514,14 @@ function atualizarCeu(cena, delta) {
             .setAlpha(estrelas * pisca).setVisible(estrelas > 0);
     });
     // No espaco a Lua, a Terra e o planeta com anel descem devagar e ficam para tras.
-    const subidaEspaco = Math.max(0, troncos - fasesCeu[faseEspaco].troncos) * alturaPorTronco * 0.08;
+    const subidaEspaco = Math.max(0, troncos - troncoFimCopa) * alturaPorTronco * 0.08;
     const lua = valor('lua');
     ceu.lua.setAlpha(lua).setVisible(lua > 0).setY(config.height * 0.2 + subidaEspaco * 0.7);
     const espaco = valor('espaco');
     ceu.terra.setAlpha(espaco).setVisible(espaco > 0).setAngle(ceu.tempo * 3)
         .setY(config.height * 0.68 + subidaEspaco);
     ceu.planeta.setAlpha(espaco).setVisible(espaco > 0).setY(config.height * 0.24 + subidaEspaco * 0.85);
-    atualizarEspaco(cena, delta, espaco);
+    atualizarEspaco(cena, delta, espaco, troncos >= troncoFimCopa - 10);
     if (estrelas > 0.5 && cena.iniciado && cena.time.now > ceu.proximaCadente) {
         ceu.proximaCadente = cena.time.now + Phaser.Math.Between(2500, 6000);
         criarEstrelaCadente(cena);
