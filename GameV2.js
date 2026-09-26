@@ -189,8 +189,11 @@ function salvarArmazenado(chave, valor) {
     }
 }
 
+// Copia da loja nesta aba: vale mesmo quando o navegador nao deixa salvar (aba anonima).
+let lojaEmMemoria = null;
+
 function lerLoja() {
-    const salvo = lerArmazenado(chaveLoja, {}) || {};
+    const salvo = lojaEmMemoria || lerArmazenado(chaveLoja, {}) || {};
     const comprados = Array.isArray(salvo.comprados) ? salvo.comprados : [];
     const equipado = salvo.equipado || {};
     const valido = (grupo, id) => itensLoja[grupo].some((item) => item.id === id) &&
@@ -207,6 +210,7 @@ function lerLoja() {
 }
 
 function salvarLoja(loja) {
+    lojaEmMemoria = JSON.parse(JSON.stringify(loja));
     salvarArmazenado(chaveLoja, loja);
 }
 
