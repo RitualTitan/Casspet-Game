@@ -109,6 +109,25 @@ const chaveRecorde = 'granulando.recorde';
 const chaveMudo = 'granulando.mudo';
 // Cofrinho de granulados e itens da loja, salvos so neste aparelho.
 const chaveLoja = 'granulando.loja';
+// Missoes do dia: 3 sorteadas pela data (iguais para todo mundo no mesmo dia). "partida" vale o
+// melhor numa partida; "dia" soma ao longo do dia. O premio cai no cofrinho ao cumprir.
+const chaveMissoes = 'granulando.missoes';
+const tiposMissao = {
+    granulados: { modo: 'partida', metas: [30, 50, 80], premios: [40, 60, 90],
+        texto: (n) => `Pegue ${n} granulados numa partida` },
+    troncos: { modo: 'partida', metas: [30, 60, 100], premios: [40, 70, 110],
+        texto: (n) => `Suba ${n} troncos numa partida` },
+    semBicada: { modo: 'partida', metas: [40, 60, 80], premios: [60, 90, 120],
+        texto: (n) => `Suba ${n} troncos sem levar bicada` },
+    sustos: { modo: 'dia', metas: [1, 2, 3], premios: [40, 70, 100],
+        texto: (n) => `Assuste o guaxinim ${n === 1 ? '1 vez' : n + ' vezes'}` },
+    dourados: { modo: 'dia', metas: [1, 2, 3], premios: [40, 60, 90],
+        texto: (n) => n === 1 ? 'Pegue 1 granulado dourado' : `Pegue ${n} granulados dourados` },
+    partidas: { modo: 'dia', metas: [2, 3, 5], premios: [30, 50, 80],
+        texto: (n) => `Jogue ${n} partidas` }
+};
+// Endereco publico do jogo, usado ao compartilhar o resultado.
+const enderecoJogo = 'https://ritualtitan.github.io/Casspet-Game/';
 // Os bichos sao o destaque da loja: animais que tambem usam o granulado. Sem arte ainda, ficam "em breve".
 const itensLoja = {
     bichos: [
@@ -207,6 +226,65 @@ function salvarArmazenado(chave, valor) {
     } catch (erro) {
         // Sem armazenamento disponivel.
     }
+}
+
+function diaDeHoje() {
+    const hoje = new Date();
+    return `${hoje.getFullYear()}-${hoje.getMonth() + 1}-${hoje.getDate()}`;
+}
+
+// As 3 missoes do dia, sempre as mesmas para a mesma data.
+function missoesDoDia(dia = diaDeHoje()) {
+    let semente = 0;
+    for (const letra of dia) semente = (semente * 31 + letra.charCodeAt(0)) >>> 0;
+    const aleatorio = () => {
+        semente = (semente + 0x6d2b79f5) >>> 0;
+        let t = semente;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const chaves = Object.keys(tiposMissao);
+    const escolhidas = [];
+    while (escolhidas.length < 3) {
+        const chave = chaves[Math.floor(aleatorio() * chaves.length)];
+        if (!escolhidas.includes(chave)) escolhidas.push(chave);
+    }
+    return escolhidas.map((chave) => {
+        const tipo = tiposMissao[chave];
+        const nivel = Math.floor(aleatorio() * tipo.metas.length);
+        return { id: chave, modo: tipo.modo, meta: tipo.metas[nivel], premio: tipo.premios[nivel], texto: tipo.texto(tipo.metas[nivel]) };
+    });
+}
+
+// Progresso salvo; num dia novo comeca do zero.
+function lerProgressoMissoes() {
+    const salvo = lerArmazenado(chaveMissoes, null);
+    const dia = diaDeHoje();
+    if (salvo && salvo.dia === dia) return salvo;
+    return { dia, progresso: {}, feitas: [] };
+}
+
+// Avanca uma missao: em "partida" guarda o melhor valor, em "dia" soma. Paga o premio ao cumprir.
+function registrarMissao(cena, id, valor) {
+    const missao = missoesDoDia().find((item) => item.id === id);
+    if (!missao) return;
+    const estado = lerProgressoMissoes();
+    if (estado.feitas.includes(id)) return;
+    const atual = estado.progresso[id] || 0;
+    estado.progresso[id] = missao.modo === 'dia' ? atual + valor : Math.max(atual, valor);
+    if (estado.progresso[id] >= missao.meta) {
+        estado.feitas.push(id);
+        const loja = lerLoja();
+        loja.saldo += missao.premio;
+        salvarLoja(loja);
+        cena.loja = loja;
+        if (cena.iniciado && !cena.morreu) {
+            mostrarFaixa(cena, 'MISSÃO CUMPRIDA!', `+${missao.premio} granulados no cofrinho`, '#ffd24a');
+            som.recorde();
+        }
+    }
+    salvarArmazenado(chaveMissoes, estado);
 }
 
 // Copia da loja nesta aba: vale mesmo quando o navegador nao deixa salvar (aba anonima).
@@ -611,6 +689,9 @@ function create(data = {}) {
     this.totalMoedas = 0;
     this.tempoMoedas = 0;
     this.comboGranulado = 0;
+    // Contagens da partida para as missoes do dia.
+    this.granuladosPegos = 0;
+    this.bicadas = 0;
     this.ultimoGranulado = -Infinity;
     this.alturaMax = 0;
     this.recorde = lerRecorde();
@@ -790,6 +871,41 @@ function create(data = {}) {
         fontStyle: 'bold', color: '#4d2710', stroke: '#f6c98f', strokeThickness: Math.max(1, Math.round(3 * escalaInicio))
     }).setOrigin(0.5);
     itensInicio.push(remendo, iconeLoja, textoLoja);
+    // Missoes do dia: botao redondo no alto do menu, com quantas ja foram feitas hoje.
+    const feitasHoje = lerProgressoMissoes().feitas.length;
+    const iconeMissoes = this.add.graphics();
+    desenharIconeMissoes(iconeMissoes);
+    const botaoMissoes = this.add.container(322, 44, [
+        this.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 24),
+        this.add.image(0, 0, texturaMadeira(this, 52, 52, { raio: 24 })).setScale(1 / escalaMadeira),
+        iconeMissoes,
+        this.add.circle(17, 17, 12, feitasHoje === 3 ? 0x3f8a4c : 0xd9452f).setStrokeStyle(2, 0xfff4d6),
+        this.add.text(17, 17, `${feitasHoje}/3`, {
+            resolution: 4, fontFamily: 'Arial', fontSize: '10px', fontStyle: 'bold', color: '#fff4d6'
+        }).setOrigin(0.5),
+        this.add.text(0, 36, 'Missões', {
+            resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold', color: '#fff4d6',
+            stroke: '#2a1410', strokeThickness: 4
+        }).setOrigin(0.5)
+    ]).setSize(56, 56).setInteractive({ useHandCursor: true });
+    // Balanca de vez em quando enquanto faltam missoes, para chamar a atencao.
+    if (feitasHoje < 3) {
+        this.tweens.add({
+            targets: botaoMissoes, angle: { from: -8, to: 8 }, duration: 120, yoyo: true, repeat: 3,
+            repeatDelay: 0, loop: -1, loopDelay: 2600
+        });
+    }
+    botaoMissoes.on('pointerdown', () => {
+        if (this.avisoInicio) return;
+        som.iniciar();
+        som.clique();
+        botoesMenu.forEach((botao) => botao.disableInteractive());
+        this.avisoInicio = mostrarMissoes(this, () => {
+            this.avisoInicio = null;
+            botoesMenu.forEach((botao) => botao.setInteractive({ useHandCursor: true }));
+        });
+    });
+    itensInicio.push(botaoMissoes);
     // Folhas caindo por cima da arte deixam o menu vivo.
     const folhasInicio = criarFolhas(this, 0, 700);
     const borboletasMenu = criarBorboletasMenu(this, yArte);
@@ -861,6 +977,7 @@ function create(data = {}) {
     this.physics.pause();
 
     const iniciarPartida = () => {
+        registrarMissao(this, 'partidas', 1);
         criarHud(this);
         musica.definirVelocidade(1);
         musica.tocar();
@@ -1387,6 +1504,7 @@ function criarPassaro(cena, ovni = false, atrasoAviso = 0) {
 
 function bicarGato(cena, passaro) {
     passaro.acertou = true;
+    cena.bicadas += 1;
     const caixa = cena.caixa;
     const agora = cena.time.now;
     // Um instante protegido, piscando, para outra bicada nao vir em seguida.
@@ -1504,6 +1622,15 @@ function criarBotaoHud(cena, x, desenharIcone, acao) {
     });
     desenhar();
     return { botao, desenhar };
+}
+
+// Pergaminho com lista e um visto, para o botao das missoes.
+function desenharIconeMissoes(g) {
+    g.fillStyle(0xfff4d6, 1).lineStyle(2.5, 0x4d2710, 1)
+        .fillRoundedRect(-10, -12, 20, 24, 4).strokeRoundedRect(-10, -12, 20, 24, 4);
+    g.lineStyle(2, 0x9a6a44, 1);
+    [-5, 0, 5].forEach((y) => g.lineBetween(-5, y, 5, y));
+    g.lineStyle(3, 0x3f8a4c, 1).lineBetween(2, 8, 5, 11).lineBetween(5, 11, 12, 2);
 }
 
 // Icones claros com contorno marrom, legiveis sobre a madeira.
@@ -1998,6 +2125,7 @@ function encostouNoGuaxinim(cena) {
 
 function assustarGuaxinim(cena) {
     const guaxinim = cena.guaxinim;
+    registrarMissao(cena, 'sustos', 1);
     encerrarDistracao(guaxinim);
     const x = guaxinim.visual.x;
     const y = guaxinim.visual.y;
@@ -2170,12 +2298,12 @@ function mostrarMorte(cena) {
     const sombra = cena.add.rectangle(180, config.height / 2, 360, config.height, 0x160d08, 0.82)
         .setScrollFactor(0).setDepth(30).setAlpha(0);
     const fundo = cena.add.graphics()
-        .fillStyle(0x3b2418, 1).fillRoundedRect(-150, -170, 300, 340, 20)
-        .lineStyle(3, 0xffe1a6, 0.9).strokeRoundedRect(-150, -170, 300, 340, 20);
-    const titulo = cena.add.text(0, -132, 'Você perdeu',
+        .fillStyle(0x3b2418, 1).fillRoundedRect(-150, -200, 300, 400, 20)
+        .lineStyle(3, 0xffe1a6, 0.9).strokeRoundedRect(-150, -200, 300, 400, 20);
+    const titulo = cena.add.text(0, -162, 'Você perdeu',
         estilo(30, corTexto, { fontStyle: 'bold' })).setOrigin(0.5);
-    const icone = cena.add.image(0, -72, 'moeda').setScale(40 / larguraGranulado);
-    const pontos = cena.add.text(0, -72, '0',
+    const icone = cena.add.image(0, -104, 'moeda').setScale(40 / larguraGranulado);
+    const pontos = cena.add.text(0, -104, '0',
         estilo(36, '#ffffff', { fontStyle: 'bold' })).setOrigin(0, 0.5);
     const centralizarPontos = () => {
         const largura = 40 + 10 + pontos.width;
@@ -2183,12 +2311,12 @@ function mostrarMorte(cena) {
         pontos.x = icone.x + 30;
     };
     centralizarPontos();
-    const troncos = cena.add.text(0, -26, 'Troncos: ' + cena.contador,
+    const troncos = cena.add.text(0, -60, 'Troncos: ' + cena.contador,
         estilo(17, '#f4ddc9')).setOrigin(0.5);
-    const recorde = cena.add.text(0, 2,
+    const recorde = cena.add.text(0, -32,
         `Recorde: ${contar(cena.recorde.granulados, 'granulado')} · ${contar(cena.recorde.troncos, 'tronco')}`,
         estilo(13, '#c9a98a')).setOrigin(0.5);
-    const cofrinho = cena.add.text(0, 26, `Cofrinho: ${contar(loja.saldo, 'granulado')}`,
+    const cofrinho = cena.add.text(0, -8, `Cofrinho: ${contar(loja.saldo, 'granulado')}`,
         estilo(13, '#ffd24a', { fontStyle: 'bold' })).setOrigin(0.5);
     let reiniciando = false;
     let lojaAberta = false;
@@ -2199,25 +2327,39 @@ function mostrarMorte(cena) {
         limparEventos();
         cena.scene.restart({ reiniciar: true });
     };
-    const convite = criarBotaoMadeira(cena, 0, 76, 240, 52, 'JOGAR DE NOVO', jogarDeNovo, { tamanho: 19 });
-    const botaoLoja = criarBotaoMadeira(cena, -62, 134, 116, 44, 'LOJA', () => {
+    const convite = criarBotaoMadeira(cena, 0, 44, 240, 52, 'JOGAR DE NOVO', jogarDeNovo, { tamanho: 19 });
+    // A imagem do resultado fica pronta antes do toque: no iPhone o compartilhamento
+    // precisa sair direto do toque, sem esperar a imagem ser gerada.
+    let cartao = null;
+    cena.time.delayedCall(300, () => {
+        gerarCartaoResultado(cena).then((arquivo) => { cartao = arquivo; }).catch(() => {});
+    });
+    const avisoCompartilhar = cena.add.text(0, 186, '', estilo(12, '#ffd24a', { fontStyle: 'bold' })).setOrigin(0.5);
+    const botaoCompartilhar = criarBotaoMadeira(cena, 0, 100, 240, 42, 'COMPARTILHAR', () => {
+        if (reiniciando || lojaAberta) return;
+        compartilharResultado(cena, cartao).then((resultado) => {
+            const textos = { copiado: 'Link copiado! Cole onde quiser.', falhou: 'Não deu para compartilhar aqui.' };
+            if (textos[resultado]) avisoCompartilhar.setText(textos[resultado]);
+        });
+    }, { tamanho: 15, cor: 0xb8e0a8 });
+    const botaoLoja = criarBotaoMadeira(cena, -62, 154, 116, 44, 'LOJA', () => {
         if (reiniciando || lojaAberta) return;
         lojaAberta = true;
         mostrarLoja(cena, () => {
             lojaAberta = false;
         }, 40);
     }, { tamanho: 15, cor: 0xd9c2a8 });
-    const botaoMenu = criarBotaoMadeira(cena, 62, 134, 116, 44, 'MENU', () => {
+    const botaoMenu = criarBotaoMadeira(cena, 62, 154, 116, 44, 'MENU', () => {
         if (reiniciando || lojaAberta) return;
         reiniciando = true;
         limparEventos();
         voltarAoMenu(cena);
     }, { tamanho: 15, cor: 0xd9c2a8 });
     // Os botoes so respondem depois que o painel aparece, para nao tocar sem querer ao cair.
-    const botoesMorte = [convite, botaoLoja, botaoMenu];
+    const botoesMorte = [convite, botaoCompartilhar, botaoLoja, botaoMenu];
     botoesMorte.forEach((botao) => botao.disableInteractive());
     const painel = cena.add.container(180, config.height / 2,
-        [fundo, titulo, icone, pontos, troncos, recorde, cofrinho, ...botoesMorte])
+        [fundo, titulo, icone, pontos, troncos, recorde, cofrinho, ...botoesMorte, avisoCompartilhar])
         .setScrollFactor(0).setDepth(31).setScale(0.6).setAlpha(0);
 
     cena.tweens.add({ targets: sombra, alpha: 1, duration: 260 });
@@ -2241,7 +2383,7 @@ function mostrarMorte(cena) {
         yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
     });
     if (novoRecorde) {
-        const selo = cena.add.text(0, -172, 'NOVO RECORDE!', estilo(16, '#3b2418', {
+        const selo = cena.add.text(0, -202, 'NOVO RECORDE!', estilo(16, '#3b2418', {
             fontStyle: 'bold', backgroundColor: '#ffd24a', padding: { x: 12, y: 6 }
         })).setOrigin(0.5).setAngle(-5);
         painel.add(selo);
@@ -2437,6 +2579,7 @@ function coletarMoeda(caixa, moeda) {
     somarGranulado(cena);
     cena.efeitos.brilho.explode(moeda.dourada ? 22 : 8, moeda.x, moeda.y);
     if (moeda.dourada) {
+        registrarMissao(cena, 'dourados', 1);
         aplicarImpulsoDourado(caixa);
         mostrarPopup(cena, moeda.x, moeda.y - 14, 'SUPER PULO!', '#ffd24a', 18);
     } else {
@@ -2449,6 +2592,8 @@ function coletarMoeda(caixa, moeda) {
 
 function somarGranulado(cena) {
     cena.totalMoedas += 1;
+    cena.granuladosPegos += 1;
+    registrarMissao(cena, 'granulados', cena.granuladosPegos);
     // Coletas em sequencia rapida formam um combo sonoro.
     const agora = cena.time.now;
     cena.comboGranulado = agora - cena.ultimoGranulado < 1800 ? cena.comboGranulado + 1 : 0;
@@ -2952,6 +3097,172 @@ function criarBotaoMadeira(cena, x, y, largura, altura, texto, acao, { tamanho =
     return botao;
 }
 
+// Tela das missoes do dia: cada uma com a barra de progresso e o premio.
+function mostrarMissoes(cena, aoFechar, profundidade = 30) {
+    const altura = config.height;
+    const tela = cena.add.container(0, 0).setScrollFactor(0).setDepth(profundidade);
+    const estado = lerProgressoMissoes();
+    const missoes = missoesDoDia();
+    const estilo = (tamanho, cor, extra = {}) => ({
+        resolution: 4, fontFamily: 'Arial', fontSize: tamanho + 'px', color: cor, ...extra
+    });
+    tela.add(cena.add.rectangle(180, altura / 2, 360 + 80, altura + 80, 0x1a0e08, 0.82).setScrollFactor(0).setInteractive());
+    const meio = altura / 2;
+    tela.add(cena.add.image(180, meio, texturaMadeira(cena, 328, 380, { raio: 20 })).setScale(1 / escalaMadeira));
+    tela.add(cena.add.text(180, meio - 158, 'MISSÕES DE HOJE', {
+        resolution: 4, fontFamily: 'Arial Black, Arial, sans-serif', fontSize: '21px', fontStyle: 'bold',
+        color: '#4d2710', stroke: '#f6c98f', strokeThickness: 3
+    }).setOrigin(0.5));
+    missoes.forEach((missao, i) => {
+        const y = meio - 92 + i * 80;
+        const feita = estado.feitas.includes(missao.id);
+        const valor = Math.min(missao.meta, estado.progresso[missao.id] || 0);
+        const linha = cena.add.container(180, y);
+        linha.add(cena.add.graphics().fillStyle(0xfff4d6, 1).fillRoundedRect(-146, -32, 292, 66, 12)
+            .lineStyle(2.5, feita ? 0x3f8a4c : 0x4d2710, 1).strokeRoundedRect(-146, -32, 292, 66, 12));
+        linha.add(cena.add.text(-134, -18, missao.texto, estilo(13, '#4d2710', { fontStyle: 'bold', wordWrap: { width: 190 } }))
+            .setOrigin(0, 0.5));
+        // Barra de progresso.
+        linha.add(cena.add.graphics().fillStyle(0xd9c2a8, 1).fillRoundedRect(-134, 10, 170, 12, 6)
+            .fillStyle(feita ? 0x3f8a4c : 0xe39b3b, 1).fillRoundedRect(-134, 10, Math.max(12, 170 * valor / missao.meta), 12, 6));
+        linha.add(cena.add.text(44, 16, `${valor}/${missao.meta}`, estilo(12, '#7a4a2a', { fontStyle: 'bold' })).setOrigin(0, 0.5));
+        if (feita) {
+            linha.add(cena.add.text(106, 0, 'Feita!', estilo(15, '#2f6b3a', { fontStyle: 'bold' })).setOrigin(0.5));
+        } else {
+            linha.add(cena.add.image(90, 0, 'moeda').setScale(22 / larguraGranulado));
+            linha.add(cena.add.text(104, 1, '+' + missao.premio, estilo(15, '#4d2710', { fontStyle: 'bold' })).setOrigin(0, 0.5));
+        }
+        linha.setAlpha(0).setScale(0.9);
+        cena.tweens.add({ targets: linha, alpha: 1, scale: 1, delay: 80 + i * 70, duration: 260, ease: 'Back.easeOut' });
+        tela.add(linha);
+    });
+    tela.add(cena.add.text(180, meio + 150, 'Novas missões todo dia. O prêmio cai no cofrinho.',
+        estilo(12, '#4d2710', { fontStyle: 'bold' })).setOrigin(0.5));
+    tela.add(criarBotaoMadeira(cena, 180, meio + 222, 160, 46, 'FECHAR', () => {
+        tela.destroy();
+        aoFechar();
+    }));
+    tela.setAlpha(0);
+    cena.tweens.add({ targets: tela, alpha: 1, duration: 160 });
+    return tela;
+}
+
+// Imagem do resultado para compartilhar: o bicho escolhido, os troncos e os granulados.
+function gerarCartaoResultado(cena) {
+    const tela = document.createElement('canvas');
+    tela.width = 1080;
+    tela.height = 1350;
+    const ctx = tela.getContext('2d');
+    const arte = cena.textures.get('introducao').getSourceImage();
+    const cobre = Math.max(1080 / arte.width, 1350 / arte.height);
+    ctx.drawImage(arte, (1080 - arte.width * cobre) / 2, (1350 - arte.height * cobre) / 2, arte.width * cobre, arte.height * cobre);
+    ctx.fillStyle = 'rgba(26, 14, 8, 0.45)';
+    ctx.fillRect(0, 0, 1080, 1350);
+    ctx.drawImage(cena.textures.get(texturaMadeira(cena, 300, 390, { raio: 24 })).getSourceImage(), 90, 70, 900, 1170);
+    const escrever = (texto, x, y, tamanho, cor = '#4d2710', contorno = '#f6c98f') => {
+        ctx.font = `bold ${tamanho}px "Arial Black", Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = tamanho / 7;
+        ctx.strokeStyle = contorno;
+        ctx.strokeText(texto, x, y);
+        ctx.fillStyle = cor;
+        ctx.fillText(texto, x, y);
+    };
+    escrever('GRANULANDO', 540, 175, 86);
+    // Personagem com a pelagem (tinta multiplicada) e o acessorio, se for o gato.
+    const loja = lerLoja();
+    const pose = cena.textures.get(texturaPose(cena, 'mascote_1', loja)).getSourceImage();
+    const figura = document.createElement('canvas');
+    figura.width = pose.width;
+    figura.height = pose.height;
+    const fctx = figura.getContext('2d');
+    fctx.drawImage(pose, 0, 0);
+    const ehGato = loja.equipado.bichos === 'gato';
+    const cor = ehGato ? itemEquipado(loja, 'pelagens').cor : 0xffffff;
+    if (cor !== 0xffffff) {
+        fctx.globalCompositeOperation = 'multiply';
+        fctx.fillStyle = '#' + cor.toString(16).padStart(6, '0');
+        fctx.fillRect(0, 0, figura.width, figura.height);
+        fctx.globalCompositeOperation = 'destination-in';
+        fctx.drawImage(pose, 0, 0);
+    }
+    const lado = 560;
+    const xFigura = 540 - lado / 2;
+    const yFigura = 180;
+    ctx.drawImage(figura, xFigura, yFigura, lado, lado);
+    const acessorio = itemEquipado(loja, 'acessorios').id;
+    if (ehGato && acessorio !== 'nenhum') {
+        const encaixe = encaixeAcessorio[acessorio];
+        const cabeca = cabecaGato.mascote_1;
+        const ponto = encaixe.ponto === 'centro'
+            ? [(cabeca.topo[0] + cabeca.pescoco[0]) / 2, (cabeca.topo[1] + cabeca.pescoco[1]) / 2] : cabeca[encaixe.ponto];
+        const imagem = cena.textures.get('ac_' + acessorio).getSourceImage();
+        const largura = encaixe.largura * cabeca.largura / 2048 * lado;
+        const alturaAc = largura * imagem.height / imagem.width;
+        ctx.save();
+        ctx.translate(xFigura + ponto[0] / 2048 * lado, yFigura + ponto[1] / 2048 * lado);
+        ctx.rotate(Phaser.Math.DegToRad(cabeca.angulo));
+        ctx.drawImage(imagem, -encaixe.origem[0] * largura, -encaixe.origem[1] * alturaAc, largura, alturaAc);
+        ctx.restore();
+    }
+    // Pergaminho com os numeros da partida.
+    ctx.fillStyle = '#fff4d6';
+    ctx.strokeStyle = '#4d2710';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.roundRect(170, 700, 740, 330, 36);
+    ctx.fill();
+    ctx.stroke();
+    escrever(`${cena.contador} ${cena.contador === 1 ? 'tronco' : 'troncos'}`, 540, 790, 92, '#4d2710', '#fff4d6');
+    const granulado = cena.textures.get('moeda').getSourceImage();
+    const textoGranulados = String(cena.totalMoedas);
+    ctx.font = 'bold 92px "Arial Black", Arial, sans-serif';
+    const larguraTexto = ctx.measureText(textoGranulados).width;
+    const inicio = 540 - (150 + 24 + larguraTexto) / 2;
+    ctx.drawImage(granulado, inicio, 900 - 46, 150, 150 * granulado.height / granulado.width);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4d2710';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(textoGranulados, inicio + 174, 912);
+    ctx.font = 'bold 40px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#7a4a2a';
+    ctx.fillText('granulados', 540, 985);
+    escrever('Consegue me passar?', 540, 1140, 62);
+    ctx.font = 'bold 34px Arial, sans-serif';
+    ctx.fillStyle = '#fff4d6';
+    ctx.fillText('Casspet® - Granulando', 540, 1282);
+    ctx.font = '28px Arial, sans-serif';
+    ctx.fillText(enderecoJogo.replace('https://', ''), 540, 1322);
+    return new Promise((resolver) => tela.toBlob((blob) =>
+        resolver(blob ? new File([blob], 'granulando.png', { type: 'image/png' }) : null), 'image/png'));
+}
+
+// Abre o compartilhamento do celular com a imagem; sem ele, compartilha so o texto ou copia o link.
+async function compartilharResultado(cena, arquivo) {
+    const texto = `Subi ${contar(cena.contador, 'tronco')} e peguei ${contar(cena.totalMoedas, 'granulado')} no Granulando! Consegue me passar?`;
+    try {
+        if (arquivo && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+            await navigator.share({ files: [arquivo], text: `${texto} ${enderecoJogo}` });
+            return 'compartilhado';
+        }
+        if (navigator.share) {
+            await navigator.share({ text: texto, url: enderecoJogo });
+            return 'compartilhado';
+        }
+    } catch (erro) {
+        if (erro && erro.name === 'AbortError') return 'cancelado';
+    }
+    try {
+        await navigator.clipboard.writeText(`${texto} ${enderecoJogo}`);
+        return 'copiado';
+    } catch (erro) {
+        return 'falhou';
+    }
+}
+
 // Volta para a tela de titulo, de onde se chega a loja.
 function voltarAoMenu(cena) {
     musica.parar(0.05);
@@ -3308,6 +3619,8 @@ function pular(caixa, plataforma) {
     if (plataforma.numero > 0 && !plataforma.contada) {
         plataforma.contada = true;
         cena.contador += 1;
+        registrarMissao(cena, 'troncos', cena.contador);
+        if (cena.bicadas === 0) registrarMissao(cena, 'semBicada', cena.contador);
         atualizarHud(cena);
         if (cena.contador % 20 === 0) {
             cena.plataformas.getChildren().forEach(function (tronco) {

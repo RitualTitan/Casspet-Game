@@ -93,11 +93,20 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   brilho no letreiro e no INICIAR, faz estrelinhas e escurece a placa tocada. Borboletas voam pelo menu.
 - Placar (`criarHud`): troncos numa etiqueta de madeira com icone de tronco cortado, granulados numa placa
   no meio (o granulado pego voa ate ela, `voarParaPlacar`) e pausa/som em botoes redondos de madeira.
-- Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
+- Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, COMPARTILHAR, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
 - Botoes dentro de paineis fixos precisam de `setScrollFactor(0)` no proprio botao, senao o toque segue a camera.
 - `scene.restart()` sem dados repete os do ultimo reinicio; `voltarAoMenu` passa `{ reiniciar: false }`.
 - `index.html` mostra uma caixa "O jogo travou" com o motivo e RECARREGAR se acontecer um erro de script
   (o usuario relatou um travamento no JOGAR DE NOVO que nao foi reproduzido).
+
+## Missoes e compartilhar
+
+- **Missoes do dia** (`tiposMissao`, `missoesDoDia`, `registrarMissao`): 3 por dia sorteadas pela data (iguais
+  para todos), progresso em `chaveMissoes`; "partida" vale o melhor numa partida, "dia" soma. Ao cumprir,
+  faixa "MISSAO CUMPRIDA!" e o premio cai no cofrinho. Botao redondo "Missoes" no alto do menu com x/3.
+- **Compartilhar** na derrota: `gerarCartaoResultado` monta uma imagem 1080 x 1350 (bicho com pelagem e
+  acessorio, troncos, granulados, endereco do jogo) antes do toque, porque no iPhone o compartilhamento tem
+  que sair direto do toque; `compartilharResultado` usa o compartilhar do celular, senao copia o link.
 
 ## Loja e cofrinho
 
