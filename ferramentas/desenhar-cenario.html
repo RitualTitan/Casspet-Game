@@ -1472,12 +1472,15 @@
     }
 
     // ---------------------------------------------------------------- cenario completo
-    function desenharCenario() {
+    // Para os guias da IA: `nuvensSoltas: false` tira as nuvens espalhadas (fica so o colar da
+    // copa) e `margem` alarga a tela dos dois lados, para a copa inteira caber sem corte.
+    function desenharCenario({ nuvensSoltas = true, margem = 0 } = {}) {
       sorte = criarSorteio(2026);
       const tela = document.createElement('canvas');
-      tela.width = arte.largura;
+      tela.width = arte.largura + margem * 2;
       tela.height = arte.altura;
       const ctx = tela.getContext('2d', { willReadFrequently: true });
+      ctx.translate(margem, 0);
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
 
@@ -1489,8 +1492,10 @@
         pinheiroFundo(ctx, x, entre(300, 360), entre(260, 420), entre(90, 130), '#6f9f95', '#5c8b84', null);
       }
       // Nuvens baixas atras de tudo.
-      nuvem(ctx, 160, Y(1650), 300, 120);
-      nuvem(ctx, 880, Y(1450), 260, 110);
+      if (nuvensSoltas) {
+        nuvem(ctx, 160, Y(1650), 300, 120);
+        nuvem(ctx, 880, Y(1450), 260, 110);
+      }
       // Cachoeira entre paredoes a direita.
       cachoeira(ctx, 800, 880, 250, 64);
       // Floresta do meio, mais verde e com contorno.
@@ -1534,7 +1539,7 @@
         [260, 3500, 200, 84], [800, 3900, 230, 92], [180, 4450, 180, 76], [860, 4900, 200, 80],
         [230, 5400, 170, 70], [820, 5750, 190, 74]
       ];
-      nuvens.forEach(([x, r, l, a]) => nuvem(ctx, x, Y(r), l, a));
+      if (nuvensSoltas) nuvens.forEach(([x, r, l, a]) => nuvem(ctx, x, Y(r), l, a));
 
       // Copa do pinheiro, com um colar de nuvens na base.
       [[190, 6200, 360, 140], [860, 6230, 380, 150], [520, 6120, 300, 110]].forEach(([x, r, l, a]) => nuvem(ctx, x, Y(r), l, a));
