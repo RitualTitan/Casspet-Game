@@ -1,4 +1,4 @@
-# CassPads — Granulando
+# Casspet® — Granulando
 
 Jogo de plataforma vertical feito com JavaScript e Phaser 3. O gato pula automaticamente; o jogador controla o movimento lateral e coleta granulados.
 
