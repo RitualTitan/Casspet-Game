@@ -72,6 +72,17 @@ ser revista em CONFIGURACOES > HISTORIA.
   (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
   do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
 
+## Loja e cofrinho
+
+- A placa SAIR do menu virou **LOJA** (um pedaco liso da madeira da propria arte cobre o texto antigo).
+- Os granulados de cada partida vao para o cofrinho (`chaveLoja`, salvo so no aparelho, como o recorde).
+- `itensLoja`: **bichos** (o foco, decisao do usuario: animais que tambem usam o granulado - coelho, hamster,
+  passaro, porquinho-da-india, iguana), **pelagens** (tint sobre o gato; so escurece ou muda o tom) e
+  **acessorios** desenhados no codigo (`ac_*`), presos na cabeca por `cabecaGato` em cada uma das 4 poses.
+- Os bichos estao "em breve": precisam de 4 poses cada (parado, quase pulando, pulando, caindo), no estilo e
+  no tamanho do gato. As artes estao sendo geradas no Magnific do usuario (autorizado); a rede do ambiente
+  precisa liberar `pikaso.cdnpk.net` para baixar os resultados.
+
 ## Ideias guardadas pelo usuario (ainda nao feitas)
 
 - Um final no topo da arvore (ninho do guaxinim + quadrinho final) - sugerido, ainda nao confirmado.

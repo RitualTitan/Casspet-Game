@@ -99,6 +99,52 @@ const superficieChao = 104 / 229;
 const folgaAbaixoGato = 340;
 const chaveRecorde = 'granulando.recorde';
 const chaveMudo = 'granulando.mudo';
+// Cofrinho de granulados e itens da loja, salvos so neste aparelho.
+const chaveLoja = 'granulando.loja';
+// Os bichos sao o destaque da loja: animais que tambem usam o granulado. Sem arte ainda, ficam "em breve".
+const itensLoja = {
+    bichos: [
+        { id: 'gato', nome: 'Gato', preco: 0 },
+        { id: 'coelho', nome: 'Coelho', preco: 1500, emBreve: true },
+        { id: 'hamster', nome: 'Hamster', preco: 1500, emBreve: true },
+        { id: 'passaro', nome: 'Pássaro', preco: 2000, emBreve: true },
+        { id: 'porquinho', nome: 'Porquinho-da-índia', preco: 2500, emBreve: true },
+        { id: 'iguana', nome: 'Iguana', preco: 3000, emBreve: true }
+    ],
+    pelagens: [
+        { id: 'original', nome: 'Original', preco: 0, cor: 0xffffff },
+        // A cor tinge o marrom do gato: da para escurecer e mudar o tom, nao clarear.
+        { id: 'cinza', nome: 'Cinza', preco: 150, cor: 0xc6c6d2 },
+        { id: 'ruiva', nome: 'Ruiva', preco: 250, cor: 0xffb070 },
+        { id: 'dourada', nome: 'Dourada', preco: 350, cor: 0xffd86a },
+        { id: 'chocolate', nome: 'Chocolate', preco: 450, cor: 0xa0705a },
+        { id: 'escura', nome: 'Escura', preco: 600, cor: 0x6f6878 }
+    ],
+    acessorios: [
+        { id: 'nenhum', nome: 'Nenhum', preco: 0 },
+        { id: 'bone', nome: 'Boné', preco: 100 },
+        { id: 'oculos', nome: 'Óculos', preco: 200 },
+        { id: 'bandana', nome: 'Bandana Casspet', preco: 300 },
+        { id: 'coroa', nome: 'Coroa', preco: 700 },
+        { id: 'capacete', nome: 'Capacete espacial', preco: 1000 }
+    ]
+};
+// Onde cada acessorio fica em cada pose do gato, em pixels das imagens de 2048: topo da
+// cabeca, meio dos olhos e pescoco, a largura da cabeca e a inclinacao dela.
+const cabecaGato = {
+    mascote_1: { topo: [1028, 620], olhos: [1028, 844], pescoco: [1028, 1140], largura: 740, angulo: 0 },
+    quasePulando: { topo: [1340, 700], olhos: [1488, 1008], pescoco: [1320, 1272], largura: 840, angulo: 5 },
+    pulando: { topo: [1020, 300], olhos: [1212, 640], pescoco: [1160, 1060], largura: 1060, angulo: -10 },
+    caindo: { topo: [1020, 420], olhos: [1152, 728], pescoco: [1140, 1072], largura: 920, angulo: -8 }
+};
+// Ponto de apoio, tamanho (em larguras de cabeca) e origem da textura de cada acessorio.
+const encaixeAcessorio = {
+    bone: { ponto: 'topo', largura: 1.15, origem: [0.42, 0.78] },
+    oculos: { ponto: 'olhos', largura: 0.95, origem: [0.5, 0.5] },
+    bandana: { ponto: 'pescoco', largura: 0.8, origem: [0.5, 0.2] },
+    coroa: { ponto: 'topo', largura: 0.6, origem: [0.5, 0.85] },
+    capacete: { ponto: 'centro', largura: 1.6, origem: [0.5, 0.5] }
+};
 const corTexto = '#ffe1a6';
 const corMadeiraEscura = 0x382017;
 // Recortes da pagina de quadrinhos (assets/historia.webp, 1333 x 2000), em ordem de leitura.
@@ -141,6 +187,31 @@ function salvarArmazenado(chave, valor) {
     } catch (erro) {
         // Sem armazenamento disponivel.
     }
+}
+
+function lerLoja() {
+    const salvo = lerArmazenado(chaveLoja, {}) || {};
+    const comprados = Array.isArray(salvo.comprados) ? salvo.comprados : [];
+    const equipado = salvo.equipado || {};
+    const valido = (grupo, id) => itensLoja[grupo].some((item) => item.id === id) &&
+        (comprados.includes(id) || itensLoja[grupo].find((item) => item.id === id).preco === 0);
+    return {
+        saldo: Math.max(0, Math.floor(Number(salvo.saldo) || 0)),
+        comprados,
+        equipado: {
+            bichos: valido('bichos', equipado.bichos) ? equipado.bichos : 'gato',
+            pelagens: valido('pelagens', equipado.pelagens) ? equipado.pelagens : 'original',
+            acessorios: valido('acessorios', equipado.acessorios) ? equipado.acessorios : 'nenhum'
+        }
+    };
+}
+
+function salvarLoja(loja) {
+    salvarArmazenado(chaveLoja, loja);
+}
+
+function itemEquipado(loja, grupo) {
+    return itensLoja[grupo].find((item) => item.id === loja.equipado[grupo]);
 }
 
 function lerRecorde() {
@@ -553,6 +624,8 @@ function create(data = {}) {
     this.gato = this.add.image(this.caixa.x, this.caixa.y + 40, 'mascote_1')
         .setOrigin(0.5, 1).setDepth(5);
     this.deformacao = { x: 1, y: 1 };
+    this.loja = lerLoja();
+    vestirGato(this, this.gato);
     atualizarCenario(this, 0);
     this.physics.add.existing(this.caixa);
     this.caixa.body.setSize(1200, 1400);
@@ -667,8 +740,20 @@ function create(data = {}) {
         470 * escalaInicio, 106 * escalaInicio).setInteractive({ useHandCursor: true });
     const botaoInicio = zonaMenu(760);
     const botaoConfiguracoes = zonaMenu(877);
-    const botaoSair = zonaMenu(990);
-    const botoesMenu = [botaoInicio, botaoConfiguracoes, botaoSair];
+    const botaoLoja = zonaMenu(990);
+    const botoesMenu = [botaoInicio, botaoConfiguracoes, botaoLoja];
+    // A placa SAIR da arte vira LOJA: um pedaco liso da propria madeira cobre o icone e o texto.
+    const xArte = (x) => config.width / 2 + (x - 941 / 2) * escalaInicio;
+    const texturaInicio = this.textures.get('introducao');
+    if (!texturaInicio.has('madeiraLoja')) texturaInicio.add('madeiraLoja', 0, 582, 962, 86, 56);
+    const remendo = this.add.image(xArte(318), yArte(962), 'introducao', 'madeiraLoja')
+        .setOrigin(0, 0).setDisplaySize(262 * escalaInicio, 56 * escalaInicio);
+    const iconeLoja = this.add.image(xArte(360), yArte(990), 'ic_sacola').setScale(escalaInicio * 0.95);
+    const textoLoja = this.add.text(xArte(505), yArte(992), 'LOJA', {
+        resolution: 4, fontFamily: 'Arial Black, Arial, sans-serif', fontSize: Math.round(54 * escalaInicio) + 'px',
+        fontStyle: 'bold', color: '#4d2710', stroke: '#f6c98f', strokeThickness: Math.max(1, Math.round(3 * escalaInicio))
+    }).setOrigin(0.5);
+    itensInicio.push(remendo, iconeLoja, textoLoja);
     // Folhas caindo por cima da arte deixam o menu vivo.
     const folhasInicio = criarFolhas(this, 0, 700);
     this.telaInicio = this.add.container(0, 0, [...itensInicio, folhasInicio, ...botoesMenu])
@@ -721,8 +806,15 @@ function create(data = {}) {
         'CONTROLES\n\nArraste o dedo na metade de baixo da tela: o gato anda até ficar alinhado com ele.\n\n' +
         'Os saltos são automáticos.\n\n' +
         'Os botões no alto da tela pausam o jogo e ligam ou desligam o som.', true));
-    botaoSair.on('pointerup', () => mostrarAvisoInicio(
-        'Para sair do jogo, feche esta aba do navegador.'));
+    botaoLoja.on('pointerup', () => {
+        if (this.avisoInicio) return;
+        som.clique();
+        botoesMenu.forEach((botao) => botao.disableInteractive());
+        this.avisoInicio = mostrarLoja(this, () => {
+            this.avisoInicio = null;
+            botoesMenu.forEach((botao) => botao.setInteractive({ useHandCursor: true }));
+        });
+    });
     this.physics.pause();
 
     const iniciarPartida = () => {
@@ -835,6 +927,7 @@ function criarTexturasEfeitos(cena) {
         [16, 33, 50, 67, 84].forEach((x, k) => g.fillStyle(cores[k % 2]).fillCircle(x, 38, 4));
         g.generateTexture(chave, 100, 60);
     });
+    criarTexturasAcessorios(g);
     // Silhueta de passarinho distante para os bandos do fundo; a cor vem do tint.
     [['fx_ave_fundo_a', [[3, 4], [10, 9], [20, 13], [30, 9], [37, 4]]],
         ['fx_ave_fundo_b', [[3, 15], [10, 11], [20, 12], [30, 11], [37, 15]]]].forEach(([chave, asas]) => {
@@ -843,6 +936,60 @@ function criarTexturasEfeitos(cena) {
         g.generateTexture(chave, 40, 20);
     });
     g.destroy();
+}
+
+// Acessorios da loja e o icone da placa LOJA, no mesmo traco escuro do gato.
+function criarTexturasAcessorios(g) {
+    const contorno = 0x2a1410;
+    // Bone vermelho com aba para a frente (direita) e patinha na frente.
+    g.clear().lineStyle(5, contorno);
+    g.fillStyle(0xb3321f).fillEllipse(96, 58, 60, 16).strokeEllipse(96, 58, 60, 16);
+    g.fillStyle(0xd9452f).fillEllipse(56, 50, 92, 72);
+    g.fillStyle(0xd9452f).fillRect(10, 50, 92, 12);
+    g.lineStyle(5, contorno).strokeEllipse(56, 50, 92, 72);
+    g.lineBetween(10, 60, 102, 60);
+    g.fillStyle(0xd9452f).fillRect(12, 50, 88, 8);
+    g.fillStyle(0xffe1a6).fillCircle(56, 15, 5);
+    desenharPatinha(g, 60, 38, 0.42, 0xffe1a6);
+    g.generateTexture('ac_bone', 130, 70);
+    // Oculos escuros com brilho.
+    g.clear().lineStyle(5, contorno).lineBetween(46, 22, 64, 22);
+    [[26, 24], [84, 24]].forEach(([x, y]) => {
+        g.fillStyle(0x241629).fillRoundedRect(x - 22, y - 15, 44, 30, 12);
+        g.lineStyle(4, contorno).strokeRoundedRect(x - 22, y - 15, 44, 30, 12);
+        g.fillStyle(0xffffff, 0.55).fillEllipse(x - 8, y - 6, 12, 6);
+    });
+    g.generateTexture('ac_oculos', 110, 48);
+    // Bandana verde da embalagem Casspet, com a patinha.
+    g.clear().fillStyle(0x2f6b3a).fillTriangle(6, 8, 104, 8, 55, 74);
+    g.lineStyle(5, contorno).strokeTriangle(6, 8, 104, 8, 55, 74);
+    g.fillStyle(0x3f8a4c).fillRect(8, 8, 94, 10);
+    desenharPatinha(g, 55, 34, 0.5, 0xffe1a6);
+    g.generateTexture('ac_bandana', 110, 80);
+    // Coroa dourada com pedra vermelha.
+    const coroa = [{ x: 6, y: 60 }, { x: 6, y: 18 }, { x: 24, y: 36 }, { x: 40, y: 6 },
+        { x: 56, y: 36 }, { x: 74, y: 18 }, { x: 74, y: 60 }];
+    g.clear().fillStyle(0xffc629).fillPoints(coroa, true).lineStyle(5, contorno).strokePoints(coroa, true);
+    g.fillStyle(0xfff0a0).fillRect(10, 46, 60, 5);
+    g.fillStyle(0xd9452f).fillCircle(40, 42, 6).lineStyle(3, contorno).strokeCircle(40, 42, 6);
+    g.generateTexture('ac_coroa', 80, 66);
+    // Capacete espacial: bolha transparente com brilho e gola.
+    g.clear().fillStyle(0xbfeeff, 0.22).fillCircle(90, 88, 82);
+    g.lineStyle(6, 0xeaf8ff, 0.95).strokeCircle(90, 88, 82);
+    g.lineStyle(7, 0xffffff, 0.8);
+    g.beginPath();
+    g.arc(90, 88, 64, Math.PI * 1.1, Math.PI * 1.45);
+    g.strokePath();
+    g.fillStyle(0xc9ccd6).fillRoundedRect(40, 158, 100, 18, 8).lineStyle(4, contorno).strokeRoundedRect(40, 158, 100, 18, 8);
+    g.generateTexture('ac_capacete', 180, 180);
+    // Sacolinha de compras da placa LOJA.
+    g.clear().lineStyle(7, 0x4d2710);
+    g.beginPath();
+    g.arc(60, 40, 18, Math.PI, 0);
+    g.strokePath();
+    g.fillStyle(0xf4c58a).fillRoundedRect(20, 38, 80, 74, 10).lineStyle(7, 0x4d2710).strokeRoundedRect(20, 38, 80, 74, 10);
+    desenharPatinha(g, 60, 76, 0.75, 0x9a5a2c);
+    g.generateTexture('ic_sacola', 120, 120);
 }
 
 // Duas borboletas passeando pelo gramado do comeco da subida.
@@ -1834,6 +1981,11 @@ function mostrarMorte(cena) {
         altura: Math.max(anterior.altura, cena.alturaMax)
     };
     salvarArmazenado(chaveRecorde, cena.recorde);
+    // Os granulados da partida vao para o cofrinho da loja.
+    const loja = lerLoja();
+    loja.saldo += cena.totalMoedas;
+    salvarLoja(loja);
+    cena.loja = loja;
 
     const estilo = (tamanho, cor, extra = {}) => ({
         resolution: 4, fontFamily: 'Arial', fontSize: tamanho + 'px', color: cor,
@@ -1860,11 +2012,13 @@ function mostrarMorte(cena) {
     const recorde = cena.add.text(0, 38,
         `Recorde: ${contar(cena.recorde.granulados, 'granulado')} · ${contar(cena.recorde.troncos, 'tronco')}`,
         estilo(13, '#c9a98a')).setOrigin(0.5);
+    const cofrinho = cena.add.text(0, 62, `Cofrinho: ${contar(loja.saldo, 'granulado')}`,
+        estilo(13, '#ffd24a', { fontStyle: 'bold' })).setOrigin(0.5);
     const convite = cena.add.text(0, 92,
         'Toque para jogar de novo',
         estilo(15, '#f4ddc9', { lineSpacing: 4 })).setOrigin(0.5);
     const painel = cena.add.container(180, config.height / 2,
-        [fundo, titulo, icone, pontos, troncos, recorde, convite])
+        [fundo, titulo, icone, pontos, troncos, recorde, cofrinho, convite])
         .setScrollFactor(0).setDepth(31).setScale(0.6).setAlpha(0);
 
     cena.tweens.add({ targets: sombra, alpha: 1, duration: 260 });
@@ -2546,6 +2700,189 @@ function criarEstrelaCadente(cena) {
     });
 }
 
+// Tela da loja: cofrinho, abas e cartoes com os itens. Devolve o container, que se
+// destroi ao voltar.
+function mostrarLoja(cena, aoFechar) {
+    const loja = lerLoja();
+    cena.loja = loja;
+    const altura = config.height;
+    const tela = cena.add.container(0, 0).setScrollFactor(0).setDepth(30);
+    const fixo = (objeto) => {
+        tela.add(objeto);
+        return objeto;
+    };
+    const estilo = (tamanho, cor, extra = {}) => ({
+        resolution: 4, fontFamily: 'Arial', fontSize: tamanho + 'px', color: cor, ...extra
+    });
+    // Bloqueia os toques no menu por baixo.
+    fixo(cena.add.rectangle(180, altura / 2, 360 + 80, altura + 80, 0x24140c).setInteractive());
+    fixo(cena.add.text(180, 34, 'LOJA', estilo(28, corTexto, { fontStyle: 'bold', stroke: '#1a0e08', strokeThickness: 5 })).setOrigin(0.5));
+    const fundoSaldo = fixo(cena.add.graphics());
+    const iconeSaldo = fixo(cena.add.image(0, 72, 'moeda').setScale(22 / 808));
+    const textoSaldo = fixo(cena.add.text(0, 73, '', estilo(15, corTexto, { fontStyle: 'bold' })).setOrigin(0, 0.5));
+    const atualizarSaldo = () => {
+        textoSaldo.setText(`${loja.saldo} no cofrinho`);
+        const largura = 22 + 8 + textoSaldo.width + 28;
+        const inicio = 180 - largura / 2;
+        iconeSaldo.x = inicio + 25;
+        textoSaldo.x = inicio + 42;
+        fundoSaldo.clear().fillStyle(corMadeiraEscura, 1).fillRoundedRect(inicio, 58, largura, 28, 14)
+            .lineStyle(1.5, 0xffe1a6, 0.5).strokeRoundedRect(inicio, 58, largura, 28, 14);
+    };
+    atualizarSaldo();
+
+    const abas = [['bichos', 'Bichos'], ['pelagens', 'Pelagens'], ['acessorios', 'Acessórios']];
+    let abaAtual = 'bichos';
+    const botoesAbas = abas.map(([grupo, nome], i) => {
+        const x = 66 + i * 114;
+        const fundo = fixo(cena.add.rectangle(x, 110, 106, 32, 0x4a2c1a).setStrokeStyle(1.5, 0xffe1a6, 0.4)
+            .setInteractive({ useHandCursor: true }));
+        const texto = fixo(cena.add.text(x, 110, nome, estilo(14, corTexto, { fontStyle: 'bold' })).setOrigin(0.5));
+        fundo.on('pointerup', () => {
+            if (abaAtual === grupo) return;
+            som.clique();
+            abaAtual = grupo;
+            desenharCartoes();
+        });
+        return { grupo, fundo, texto };
+    });
+
+    let cartoes = null;
+    const aviso = fixo(cena.add.text(180, altura - 80, '', estilo(13, '#ffd24a', { fontStyle: 'bold' })).setOrigin(0.5));
+    const avisar = (texto) => {
+        cena.tweens.killTweensOf(aviso);
+        aviso.setText(texto).setAlpha(1);
+        cena.tweens.add({ targets: aviso, alpha: 0, delay: 1400, duration: 400 });
+    };
+    const escolher = (grupo, item) => {
+        if (item.emBreve) {
+            avisar('Esse bicho chega em breve!');
+            return;
+        }
+        const tem = item.preco === 0 || loja.comprados.includes(item.id);
+        if (!tem) {
+            if (loja.saldo < item.preco) {
+                som.clique();
+                avisar(`Faltam ${contar(item.preco - loja.saldo, 'granulado')}`);
+                return;
+            }
+            loja.saldo -= item.preco;
+            loja.comprados.push(item.id);
+            som.dourado();
+            avisar(`${item.nome}: comprado!`);
+            atualizarSaldo();
+        } else {
+            som.clique();
+        }
+        loja.equipado[grupo] = item.id;
+        salvarLoja(loja);
+        vestirGato(cena, cena.gato, loja);
+        desenharCartoes();
+    };
+    const desenharCartoes = () => {
+        if (cartoes) cartoes.destroy();
+        cartoes = cena.add.container(0, 0);
+        tela.add(cartoes);
+        botoesAbas.forEach(({ grupo, fundo, texto }) => {
+            const ativa = grupo === abaAtual;
+            fundo.setFillStyle(ativa ? 0x8a5a2b : 0x4a2c1a).setStrokeStyle(ativa ? 2 : 1.5, 0xffe1a6, ativa ? 0.9 : 0.4);
+            texto.setColor(ativa ? '#ffffff' : corTexto);
+        });
+        const itens = itensLoja[abaAtual];
+        const topo = 138;
+        const alturaCartao = Math.min(150, (altura - 100 - topo - 16) / 3);
+        itens.forEach((item, i) => {
+            const x = i % 2 === 0 ? 94 : 266;
+            const y = topo + Math.floor(i / 2) * (alturaCartao + 8) + alturaCartao / 2;
+            const usando = loja.equipado[abaAtual] === item.id;
+            const tem = item.preco === 0 || loja.comprados.includes(item.id);
+            const cartao = cena.add.rectangle(x, y, 164, alturaCartao, 0x3b2418)
+                .setStrokeStyle(usando ? 3 : 1.5, usando ? 0xffd24a : 0xffe1a6, usando ? 1 : 0.35)
+                .setInteractive({ useHandCursor: true });
+            cartao.on('pointerup', () => escolher(abaAtual, item));
+            cartoes.add(cartao);
+            // Previa: o gato com o item, ou um ponto de interrogacao para os bichos que ainda vem.
+            const yFigura = y - alturaCartao / 2 + alturaCartao * 0.38;
+            if (item.emBreve) {
+                cartoes.add(cena.add.circle(x, yFigura - 4, 24, 0x24140c).setStrokeStyle(2, 0xffe1a6, 0.4));
+                cartoes.add(cena.add.text(x, yFigura - 4, '?', estilo(26, corTexto, { fontStyle: 'bold' })).setOrigin(0.5));
+            } else {
+                const provador = { ...loja, equipado: { ...loja.equipado, [abaAtual]: item.id } };
+                // Os pes do gato ficam a 84% da altura da imagem.
+                const figura = cena.add.image(x, y - alturaCartao / 2 + alturaCartao * 0.62, 'mascote_1')
+                    .setOrigin(0.5, 0.84).setScale(alturaCartao * 0.95 / 2048).setScrollFactor(0).setDepth(30.5);
+                vestirGato(cena, figura, provador);
+                cartoes.add(figura);
+                if (figura.acessorio) cartoes.add(figura.acessorio);
+            }
+            cartoes.add(cena.add.text(x, y + alturaCartao * 0.16, item.nome,
+                estilo(item.nome.length > 14 ? 11 : 13, corTexto, { fontStyle: 'bold' })).setOrigin(0.5));
+            const rotulo = item.emBreve ? 'Em breve' : usando ? 'Usando' : tem ? 'Usar' : String(item.preco);
+            const corBotao = usando ? 0x2f6b3a : tem || item.emBreve ? 0x634128 : 0x8a5a2b;
+            const yBotao = y + alturaCartao / 2 - 17;
+            cartoes.add(cena.add.rectangle(x, yBotao, 120, 24, corBotao).setStrokeStyle(1, 0xffe1a6, 0.4));
+            if (!tem && !item.emBreve) {
+                const texto = cena.add.text(x + 9, yBotao, rotulo, estilo(13, '#ffffff', { fontStyle: 'bold' })).setOrigin(0.5);
+                cartoes.add(cena.add.image(texto.x - texto.width / 2 - 13, yBotao, 'moeda').setScale(18 / 808));
+                cartoes.add(texto);
+            } else {
+                cartoes.add(cena.add.text(x, yBotao, rotulo, estilo(13, '#ffffff', { fontStyle: 'bold' })).setOrigin(0.5));
+            }
+        });
+    };
+    desenharCartoes();
+
+    const voltar = fixo(cena.add.text(180, altura - 40, 'VOLTAR', estilo(17, '#ffffff', {
+        fontStyle: 'bold', backgroundColor: '#634128', padding: { x: 24, y: 11 }
+    })).setOrigin(0.5).setInteractive({ useHandCursor: true }));
+    voltar.on('pointerup', () => {
+        som.clique();
+        tela.destroy();
+        aoFechar();
+    });
+    tela.setAlpha(0);
+    cena.tweens.add({ targets: tela, alpha: 1, duration: 160 });
+    return tela;
+}
+
+// Aplica a pelagem e o acessorio escolhidos na loja a uma imagem do gato.
+function vestirGato(cena, gato, loja = cena.loja) {
+    gato.setTint(itemEquipado(loja, 'pelagens').cor);
+    if (gato.acessorio) gato.acessorio.destroy();
+    gato.acessorio = null;
+    const acessorio = itemEquipado(loja, 'acessorios').id;
+    if (acessorio === 'nenhum') return;
+    const encaixe = encaixeAcessorio[acessorio];
+    gato.acessorio = cena.add.image(0, 0, 'ac_' + acessorio)
+        .setOrigin(encaixe.origem[0], encaixe.origem[1])
+        .setDepth(gato.depth + 0.1).setScrollFactor(gato.scrollFactorX, gato.scrollFactorY);
+    gato.acessorio.encaixe = encaixe;
+    gato.once('destroy', () => gato.acessorio && gato.acessorio.destroy());
+    posicionarAcessorio(gato);
+}
+
+// Prende o acessorio na cabeca, seguindo pose, espelhamento, achatamento e inclinacao.
+function posicionarAcessorio(gato) {
+    const acessorio = gato.acessorio;
+    if (!acessorio) return;
+    const cabeca = cabecaGato[gato.texture.key] || cabecaGato.mascote_1;
+    const encaixe = acessorio.encaixe;
+    const ponto = encaixe.ponto === 'centro'
+        ? [(cabeca.topo[0] + cabeca.pescoco[0]) / 2, (cabeca.topo[1] + cabeca.pescoco[1]) / 2]
+        : cabeca[encaixe.ponto];
+    const espelhado = gato.flipX;
+    const localX = ((espelhado ? 2048 - ponto[0] : ponto[0]) - 2048 * gato.originX) * Math.abs(gato.scaleX);
+    const localY = (ponto[1] - 2048 * gato.originY) * gato.scaleY;
+    const giro = Phaser.Math.DegToRad(gato.angle);
+    acessorio.setPosition(
+        gato.x + localX * Math.cos(giro) - localY * Math.sin(giro),
+        gato.y + localX * Math.sin(giro) + localY * Math.cos(giro));
+    const escala = encaixe.largura * cabeca.largura * Math.abs(gato.scaleX) / acessorio.frame.width;
+    acessorio.setScale(escala, escala * gato.scaleY / Math.abs(gato.scaleX))
+        .setFlipX(espelhado).setAngle(gato.angle + (espelhado ? -cabeca.angulo : cabeca.angulo))
+        .setAlpha(gato.alpha).setVisible(gato.visible);
+}
+
 // Achata ou estica o gato e volta ao normal com um balanco elastico.
 function deformarGato(cena, x, y, duracao) {
     const deformacao = cena.deformacao;
@@ -2568,6 +2905,7 @@ function sincronizarGato(cena, delta) {
     gato.setFlipX(corpo.flipX);
     gato.setScale(78 / gato.frame.width * cena.deformacao.x,
         80 / gato.frame.height * cena.deformacao.y);
+    posicionarAcessorio(gato);
     // A sombra no gramado encolhe e some conforme o gato sobe.
     if (cena.sombraGato) {
         const pertoDoChao = Phaser.Math.Clamp(1 - (alturaChao - gato.y) / 170, 0, 1);
