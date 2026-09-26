@@ -82,6 +82,8 @@ ser revista em CONFIGURACOES > HISTORIA.
 
 - Menu: as placas fazem parte da pintura, entao nada se move sobre elas; `animarMenu` passa uma faixa de
   brilho no letreiro e no INICIAR, faz estrelinhas e escurece a placa tocada. Borboletas voam pelo menu.
+- Placar (`criarHud`): troncos numa etiqueta de madeira com icone de tronco cortado, granulados numa placa
+  no meio (o granulado pego voa ate ela, `voarParaPlacar`) e pausa/som em botoes redondos de madeira.
 - Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
 - Botoes dentro de paineis fixos precisam de `setScrollFactor(0)` no proprio botao, senao o toque segue a camera.
 

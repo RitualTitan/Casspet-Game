@@ -1011,6 +1011,13 @@ function criarTexturasAcessorios(g) {
     g.strokePath();
     g.fillStyle(0xc9ccd6).fillRoundedRect(40, 158, 100, 18, 8).lineStyle(4, contorno).strokeRoundedRect(40, 158, 100, 18, 8);
     g.generateTexture('ac_capacete', 180, 180);
+    // Tronco cortado visto de frente, com os aneis, para o placar de troncos.
+    g.clear().fillStyle(0x6b3f22).fillCircle(24, 24, 21).lineStyle(4, 0x2a1410).strokeCircle(24, 24, 21);
+    g.fillStyle(0xe8b77e).fillCircle(24, 24, 15);
+    g.lineStyle(2.2, 0xb07845);
+    [10, 5.5].forEach((raio) => g.strokeCircle(24, 24, raio));
+    g.fillStyle(0xb07845).fillCircle(24, 24, 2);
+    g.generateTexture('ic_tronco', 48, 48);
     // Sacolinha de compras da placa LOJA.
     g.clear().lineStyle(7, 0x4d2710);
     g.beginPath();
@@ -1420,100 +1427,130 @@ function configurarAtalhos(cena) {
     cena.events.once('shutdown', () => cena.input.keyboard.off('keydown', tecla));
 }
 
+// Placar no estilo de madeira da loja: troncos numa etiqueta a esquerda, granulados numa
+// placa no meio e pausa e som em botoes redondos a direita.
 function criarHud(cena) {
-    const estilo = {
-        resolution: 4, fontFamily: 'Arial', fontSize: '15px', fontStyle: 'bold', color: corTexto
-    };
-    const fundo = cena.add.graphics();
-    const icone = cena.add.image(0, 0, 'moeda').setScale(24 / 808);
-    const texto = cena.add.text(0, 1, '0', estilo).setOrigin(0, 0.5);
-    const granulados = cena.add.container(180, 24, [fundo, icone, texto]);
-    const fundoTroncos = cena.add.graphics();
-    const textoTroncos = cena.add.text(12, 1, '', { ...estilo, fontSize: '12px' }).setOrigin(0, 0.5);
-    const troncos = cena.add.container(10, 24, [fundoTroncos, textoTroncos]);
-    [granulados, troncos].forEach((item) => item.setScrollFactor(0).setDepth(10));
-    const botaoPausa = criarBotaoHud(cena, 300, desenharIconePausa, () => alternarPausa(cena));
+    const estiloNumero = (tamanho) => ({
+        resolution: 4, fontFamily: 'Arial Black, Arial, sans-serif', fontSize: tamanho + 'px', fontStyle: 'bold',
+        color: '#4d2710', stroke: '#f6c98f', strokeThickness: 3
+    });
+    const fixo = (objeto) => objeto.setScrollFactor(0).setDepth(10);
+    // Sombra suave embaixo de cada peca, para destacar do tronco laranja atras.
+    const sombra = (largura, altura, raio) => cena.add.graphics().fillStyle(0x1a0e08, 0.35)
+        .fillRoundedRect(-largura / 2 + 1, -altura / 2 + 3, largura - 2, altura, raio);
+    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 116, 40, { raio: 14 })).setScale(0.5);
+    const icone = cena.add.image(-34, 0, 'moeda').setScale(26 / 808).setAngle(-12);
+    const texto = cena.add.text(-16, 1, '0', estiloNumero(19)).setOrigin(0, 0.5);
+    const granulados = fixo(cena.add.container(180, 26, [sombra(112, 36, 13), fundo, icone, texto]));
+    const fundoTroncos = cena.add.image(0, 0, texturaMadeira(cena, 88, 32, { raio: 11, escurecer: 0.12 })).setScale(0.5);
+    const iconeTroncos = cena.add.image(-24, 0, 'ic_tronco').setScale(0.46);
+    const textoTroncos = cena.add.text(-12, 1, '0', estiloNumero(15)).setOrigin(0, 0.5);
+    const troncos = fixo(cena.add.container(56, 26, [sombra(84, 28, 10), fundoTroncos, iconeTroncos, textoTroncos]));
+    const botaoPausa = criarBotaoHud(cena, 294, desenharIconePausa, () => alternarPausa(cena));
     const botaoSom = criarBotaoHud(cena, 336, desenharIconeSom, () => som.alternarMudo());
-    cena.hud = { granulados, fundo, icone, texto, troncos, fundoTroncos, textoTroncos, botaoSom };
+    cena.hud = { granulados, icone, texto, troncos, textoTroncos, botaoSom };
     atualizarHud(cena);
-    [granulados, troncos, botaoPausa.grafico, botaoSom.grafico].forEach((item, i) => {
+    // Entram caindo do alto, um de cada vez.
+    [troncos, granulados, botaoPausa.botao, botaoSom.botao].forEach((item, i) => {
         item.setAlpha(0);
-        item.y -= 20;
+        item.y -= 30;
         cena.tweens.add({
-            targets: item, alpha: 1, y: 24, duration: 350,
-            delay: 400 + i * 70, ease: 'Back.easeOut'
+            targets: item, alpha: 1, y: 26, duration: 420,
+            delay: 400 + i * 80, ease: 'Back.easeOut'
         });
     });
 }
 
+// Botao redondo de madeira com um icone claro desenhado por cima.
 function criarBotaoHud(cena, x, desenharIcone, acao) {
-    const grafico = cena.add.graphics({ x, y: 24 }).setScrollFactor(0).setDepth(12);
+    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 40, 40, { raio: 18 })).setScale(0.5);
+    const icone = cena.add.graphics();
+    const sombra = cena.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 18);
+    const botao = cena.add.container(x, 26, [sombra, fundo, icone]).setSize(44, 44)
+        .setScrollFactor(0).setDepth(12).setInteractive({ useHandCursor: true });
     const desenhar = () => {
-        grafico.clear().fillStyle(corMadeiraEscura, 0.92).fillCircle(0, 0, 14)
-            .lineStyle(1.5, 0xffe1a6, 0.4).strokeCircle(0, 0, 14);
-        desenharIcone(grafico);
+        icone.clear();
+        desenharIcone(icone);
     };
-    const zona = cena.add.zone(x, 24, 40, 40).setScrollFactor(0).setDepth(12)
-        .setInteractive({ useHandCursor: true });
-    zona.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
+    botao.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
         // Nao deixa o toque no botao retomar a pausa ou reiniciar a partida.
         evento.stopPropagation();
         som.iniciar();
         acao();
         desenhar();
         som.clique();
-        cena.tweens.killTweensOf(grafico);
-        grafico.setScale(0.8);
-        cena.tweens.add({ targets: grafico, scale: 1, duration: 220, ease: 'Back.easeOut' });
+        cena.tweens.killTweensOf(botao);
+        botao.setScale(0.82);
+        cena.tweens.add({ targets: botao, scale: 1, duration: 260, ease: 'Back.easeOut' });
     });
     desenhar();
-    return { grafico, zona, desenhar };
+    return { botao, desenhar };
 }
 
+// Icones claros com contorno marrom, legiveis sobre a madeira.
 function desenharIconePausa(g) {
-    g.fillStyle(0xffe1a6, 1).fillRoundedRect(-5.5, -6, 4, 12, 1).fillRoundedRect(1.5, -6, 4, 12, 1);
+    g.fillStyle(0xfff4d6, 1).lineStyle(2.5, 0x4d2710, 1);
+    [-5, 1.5].forEach((x) => g.fillRoundedRect(x, -7.5, 4.5, 15, 1.5).strokeRoundedRect(x, -7.5, 4.5, 15, 1.5));
 }
 
 function desenharIconeSom(g) {
-    g.fillStyle(0xffe1a6, 1).fillPoints([
-        { x: -8, y: -3 }, { x: -4, y: -3 }, { x: 1, y: -7 },
-        { x: 1, y: 7 }, { x: -4, y: 3 }, { x: -8, y: 3 }
-    ], true);
+    const alto = [
+        { x: -9, y: -3.5 }, { x: -4.5, y: -3.5 }, { x: 1, y: -8.5 },
+        { x: 1, y: 8.5 }, { x: -4.5, y: 3.5 }, { x: -9, y: 3.5 }
+    ];
+    g.fillStyle(0xfff4d6, 1).fillPoints(alto, true).lineStyle(2.5, 0x4d2710, 1).strokePoints(alto, true);
     if (som.mudo) {
-        g.lineStyle(2, 0xff8a6a, 1).lineBetween(4, -4, 9, 4).lineBetween(9, -4, 4, 4);
+        g.lineStyle(5, 0x4d2710, 1).lineBetween(4, -4.5, 10, 4.5).lineBetween(10, -4.5, 4, 4.5);
+        g.lineStyle(2.5, 0xff8a6a, 1).lineBetween(4, -4.5, 10, 4.5).lineBetween(10, -4.5, 4, 4.5);
         return;
     }
-    g.lineStyle(1.8, 0xffe1a6, 1);
-    [4.5, 8].forEach((raio) => {
+    [4.5, 8.5].forEach((raio) => {
+        g.lineStyle(5, 0x4d2710, 1);
         g.beginPath();
-        g.arc(1, 0, raio, -0.9, 0.9);
+        g.arc(1, 0, raio, -0.85, 0.85);
+        g.strokePath();
+        g.lineStyle(2.2, 0xfff4d6, 1);
+        g.beginPath();
+        g.arc(1, 0, raio, -0.85, 0.85);
         g.strokePath();
     });
-}
-
-function desenharPilula(grafico, x, largura) {
-    grafico.clear().fillStyle(corMadeiraEscura, 0.92).fillRoundedRect(x, -14, largura, 28, 14)
-        .lineStyle(1.5, 0xffe1a6, 0.4).strokeRoundedRect(x, -14, largura, 28, 14);
 }
 
 function atualizarHud(cena) {
     const hud = cena.hud;
     if (!hud) return;
     hud.texto.setText(String(cena.totalMoedas));
-    // Acompanha a largura do texto quando a quantidade de digitos aumenta.
-    const largura = 12 + 24 + 6 + hud.texto.width + 12;
-    const inicio = -largura / 2;
-    hud.icone.setPosition(inicio + 24, 0);
-    hud.texto.x = inicio + 42;
-    desenharPilula(hud.fundo, inicio, largura);
-    hud.textoTroncos.setText('Troncos ' + cena.contador);
-    desenharPilula(hud.fundoTroncos, 0, hud.textoTroncos.width + 24);
+    // Icone e numero ficam centralizados na placa, com qualquer quantidade de digitos.
+    const largura = 26 + 6 + hud.texto.width;
+    hud.icone.x = -largura / 2 + 13;
+    hud.texto.x = hud.icone.x + 19;
+    hud.textoTroncos.setText(String(cena.contador));
 }
 
 function pulsarHud(cena, alvo) {
     cena.tweens.killTweensOf(alvo);
-    alvo.setScale(1.3).setAlpha(1).setY(24);
-    cena.tweens.add({ targets: alvo, scale: 1, duration: 280, ease: 'Back.easeOut' });
+    alvo.setScale(1.25).setAlpha(1).setY(26);
+    cena.tweens.add({ targets: alvo, scale: 1, duration: 300, ease: 'Back.easeOut' });
+}
+
+// Granulado pego voa da posicao dele na tela ate o icone da placa.
+function voarParaPlacar(cena, x, y, textura, escala) {
+    const hud = cena.hud;
+    if (!hud) return;
+    const camera = cena.cameras.main;
+    const voando = cena.add.image(x, y - camera.scrollY, textura).setScale(escala)
+        .setScrollFactor(0).setDepth(11);
+    const destinoX = hud.granulados.x + hud.icone.x;
+    cena.tweens.add({
+        targets: voando, x: destinoX, y: hud.granulados.y, scale: 26 / 808, angle: 360,
+        duration: 420, ease: 'Quad.easeIn',
+        onComplete: () => {
+            voando.destroy();
+            cena.tweens.killTweensOf(hud.icone);
+            hud.icone.setScale(26 / 808 * 1.5);
+            cena.tweens.add({ targets: hud.icone, scale: 26 / 808, duration: 260, ease: 'Back.easeOut' });
+        }
+    });
 }
 
 function alternarPausa(cena, pausar = !cena.pausado) {
@@ -2389,15 +2426,8 @@ function coletarMoeda(caixa, moeda) {
         som.granulado(cena.comboGranulado);
         mostrarPopup(cena, moeda.x, moeda.y - 10, '+1');
     }
-    const efeito = cena.add.image(moeda.x, moeda.y, moeda.texture.key)
-        .setScale(moeda.scaleX).setAngle(moeda.angle).setDepth(3);
+    voarParaPlacar(cena, moeda.x, moeda.y, moeda.texture.key, moeda.scaleX);
     moeda.destroy();
-    cena.tweens.add({
-        targets: efeito, y: efeito.y - 24, alpha: 0,
-        scaleX: efeito.scaleX * 1.4, scaleY: efeito.scaleY * 1.4,
-        duration: 220, ease: 'Quad.easeOut',
-        onComplete: () => efeito.destroy()
-    });
 }
 
 function somarGranulado(cena) {
