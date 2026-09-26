@@ -29,8 +29,8 @@ Toda partida nova (pelo INICIAR ou depois de perder) comeca pelos quadrinhos (`a
 recortados por `quadrosHistoria`); decisao do usuario. O gato estava feliz com o pacote de granulado, o guaxinim
 roubou e fugiu subindo a arvore, derrubando granulados pelos troncos. PULAR vai direto para o jogo; tambem pode
 ser revista em CONFIGURACOES > HISTORIA. A composicao (quadro com moldura e legenda em pergaminho) e aprovada;
-o acabamento segue a madeira da loja: floresta escurecida no fundo, progresso com granulados numa tirinha de
-madeira e PULAR como botao de madeira.
+o acabamento segue a madeira da loja: floresta escurecida no fundo e PULAR como botao de madeira. O progresso
+continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 
 ## Publicacao
 
@@ -88,6 +88,9 @@ madeira e PULAR como botao de madeira.
   no meio (o granulado pego voa ate ela, `voarParaPlacar`) e pausa/som em botoes redondos de madeira.
 - Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
 - Botoes dentro de paineis fixos precisam de `setScrollFactor(0)` no proprio botao, senao o toque segue a camera.
+- `scene.restart()` sem dados repete os do ultimo reinicio; `voltarAoMenu` passa `{ reiniciar: false }`.
+- `index.html` mostra uma caixa "O jogo travou" com o motivo e RECARREGAR se acontecer um erro de script
+  (o usuario relatou um travamento no JOGAR DE NOVO que nao foi reproduzido).
 
 ## Loja e cofrinho
 

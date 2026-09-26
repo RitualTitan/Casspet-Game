@@ -1673,11 +1673,7 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
         .setAlpha(0);
     const fundo = fixo(cena.add.rectangle(180, config.height / 2, 360 + 80, config.height + 80, 0x1a0e08, 0.86), 40)
         .setAlpha(0);
-    // Progresso: um granulado por quadro numa tirinha de madeira; o atual fica maior e aceso.
-    const tirinha = fixo(cena.add.image(166, 26, texturaMadeira(cena, 132, 30, { raio: 12, escurecer: 0.2 }))
-        .setScale(0.5), 41);
-    const pontos = quadrosHistoria.map((quadro, i) =>
-        fixo(cena.add.image(166 - (quadrosHistoria.length - 1) * 9 + i * 18, 26, 'moeda'), 41));
+    const pontos = fixo(cena.add.graphics(), 41);
     const toque = fixo(cena.add.zone(180, config.height / 2, 360, config.height), 41).setInteractive();
     const pular = fixo(criarBotaoMadeira(cena, 300, 26, 92, 34, 'PULAR »', () => encerrar(), { tamanho: 13 }), 42);
     const fundoLegenda = fixo(cena.add.graphics(), 41);
@@ -1689,7 +1685,7 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
         resolution: 4, fontFamily: 'Arial', fontSize: '14px', fontStyle: 'bold', color: '#fff4d6',
         stroke: '#1a0e08', strokeThickness: 4
     }), 41).setOrigin(0.5);
-    const objetos = [arte, fundo, tirinha, ...pontos, toque, pular, fundoLegenda, legenda, dica];
+    const objetos = [arte, fundo, pontos, toque, pular, fundoLegenda, legenda, dica];
     cena.tweens.add({ targets: [arte, fundo], alpha: 1, duration: 250 });
     cena.tweens.add({
         targets: dica, alpha: 0.5, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
@@ -1701,16 +1697,11 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
     let terminou = false;
 
     const desenharPontos = () => {
-        pontos.forEach((ponto, i) => {
-            cena.tweens.killTweensOf(ponto);
-            ponto.setAlpha(i <= indice ? 1 : 0.35).setAngle(-15);
-            if (i === indice) {
-                // O granulado do quadro atual cresce com um pulinho.
-                ponto.setScale(12 / 808);
-                cena.tweens.add({ targets: ponto, scale: 22 / 808, duration: 320, ease: 'Back.easeOut' });
-            } else {
-                ponto.setScale(13 / 808);
-            }
+        pontos.clear();
+        const inicioX = 166 - (quadrosHistoria.length - 1) * 8;
+        quadrosHistoria.forEach((quadro, i) => {
+            pontos.fillStyle(i === indice ? 0xffd24a : 0xffe1a6, i === indice ? 1 : 0.35)
+                .fillCircle(inicioX + i * 16, 26, i === indice ? 5 : 3.5);
         });
     };
     const completarLegenda = () => {
@@ -2947,7 +2938,9 @@ function voltarAoMenu(cena) {
     musica.parar(0.05);
     cena.tweens.resumeAll();
     cena.physics.resume();
-    cena.scene.restart();
+    // Sem esse aviso, o Phaser repete os dados do ultimo reinicio: depois de um JOGAR DE NOVO,
+    // o MENU iria direto para a historinha.
+    cena.scene.restart({ reiniciar: false });
 }
 
 // Tela da loja: cofrinho, abas e cartoes com os itens, no estilo das placas de madeira do
