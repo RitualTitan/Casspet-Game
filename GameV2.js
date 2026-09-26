@@ -871,9 +871,10 @@ function create(data = {}) {
                 onComplete: () => telaInicio.destroy()
             });
         }
-        // Toda partida nova, inclusive depois de perder, comeca pelos quadrinhos
-        // que contam por que o gato esta subindo; PULAR vai direto para o jogo.
-        mostrarHistoria(this, iniciarPartida, 'Toque para começar!');
+        // Pelo INICIAR do menu a partida comeca pelos quadrinhos que contam por que o gato
+        // esta subindo (PULAR vai direto para o jogo). JOGAR DE NOVO nao repete a historia.
+        if (data.reiniciar) iniciarPartida();
+        else mostrarHistoria(this, iniciarPartida, 'Toque para começar!');
     };
     // Somente a placa INICIAR comeca a partida por toque.
     botaoInicio.on('pointerup', comecar);
