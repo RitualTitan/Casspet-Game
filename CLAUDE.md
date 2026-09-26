@@ -53,7 +53,13 @@ ser revista em CONFIGURACOES > HISTORIA.
 - Chao: `assets/chao.webp` (versao reduzida de `assets/chao-original.webp`). `alturaChao` define a altura
   da grama e `superficieChao` a linha da grama dentro da imagem.
 - Guaxinim: `assets/guaxinim.png` (recorte transparente de `guaxinim-original.webp`); o pacote que ele
-  carrega e a textura `fx_saco`, desenhada no codigo.
+  carrega e a textura `fx_saco`, desenhada no codigo. Expressoes (geradas no Magnific, mesmo tamanho):
+  `guaxinim-rindo.png` (provocando e distraido; segura o pacote na mao, entao o `fx_saco` some) e
+  `guaxinim-susto.png` (depois do susto).
+- Gato: o parado (`mascote_1`) usa `assets/gato-parado.webp`, redesenhado no estilo das outras poses (o antigo,
+  mais escuro, e `mascote_1.png`). `gato-machucado.webp` (tonto) aparece ~0,5 s quando o passaro/OVNI acerta.
+- A textura `introducao` (arte do menu) tem recortes (`madeiraLoja`); ao usar a arte inteira, passe o
+  frame `'__BASE'`, senao o Phaser usa o primeiro recorte.
 - Sons e musica sao sintetizados com Web Audio (objetos `som`, `musica` e `trilha`), sem arquivos de audio.
 - **Ceu:** as faixas do cenario nao tem ceu (a ferramenta tira o degrade do SVG e deixa o fundo transparente).
   O ceu e desenhado no codigo (`criarCeu`/`atualizarCeu`) e muda com a altura alcancada em troncos (`fasesCeu`):
@@ -72,9 +78,18 @@ ser revista em CONFIGURACOES > HISTORIA.
   (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
   do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
 
+## Menus
+
+- Menu: as placas fazem parte da pintura, entao nada se move sobre elas; `animarMenu` passa uma faixa de
+  brilho no letreiro e no INICIAR, faz estrelinhas e escurece a placa tocada. Borboletas voam pelo menu.
+- Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
+- Botoes dentro de paineis fixos precisam de `setScrollFactor(0)` no proprio botao, senao o toque segue a camera.
+
 ## Loja e cofrinho
 
 - A placa SAIR do menu virou **LOJA** (um pedaco liso da madeira da propria arte cobre o texto antigo).
+- Visual de madeira: `texturaMadeira` monta tabuas com a madeira lisa das placas da arte; cartoes entram em
+  sequencia, a compra solta granulados e o item em uso respira.
 - Os granulados de cada partida vao para o cofrinho (`chaveLoja`, salvo so no aparelho, como o recorde).
 - `itensLoja`: **bichos** (o foco, decisao do usuario: animais que tambem usam o granulado - coelho, hamster,
   passaro, porquinho-da-india, iguana), **pelagens** (tint sobre o gato; so escurece ou muda o tom) e
