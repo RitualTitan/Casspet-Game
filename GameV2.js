@@ -2936,7 +2936,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
     // Fundo: a floresta do menu escurecida. Tambem bloqueia os toques no que esta por baixo.
     const escalaArte = Math.max(config.width / 941, altura / 1672);
     fixo(cena.add.image(180, altura / 2, 'introducao', '__BASE').setScale(escalaArte));
-    fixo(cena.add.rectangle(180, altura / 2, 360 + 80, altura + 80, 0x1a0e08, 0.84).setScrollFactor(0).setInteractive());
+    fixo(cena.add.rectangle(180, altura / 2, 360 + 80, altura + 80, 0x1a0e08, 0.9).setScrollFactor(0).setInteractive());
 
     // Placa do titulo pendurada por duas cordas, balancando de leve.
     const cordas = fixo(cena.add.graphics());
