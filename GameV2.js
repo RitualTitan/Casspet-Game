@@ -59,6 +59,9 @@ const alturaPorTronco = 212;
 // aviso nao cobrir o de "MAIS RAPIDO!". A noite chega antes da copa do pinheiro do
 // cenario, que ocupa a tela de ~110 a ~185 troncos.
 const transicaoCeu = 14;
+// Titulos que aparecem ao mudar de fase ("FIM DE TARDE", "ESPACO!"). Desligados para
+// testar sem eles, a pedido do usuario; basta trocar para true para voltar.
+const mostrarAvisosCeu = false;
 const fasesCeu = [
     { troncos: 0, topo: 0x3f8bd8, meio: 0x5ca8e7, base: 0x9fd4f5, luz: 0xffffff,
         sol: 0.14, corSol: 0xfff6c8, estrelas: 0, lua: 0, espaco: 0 },
@@ -75,6 +78,8 @@ const fasesCeu = [
         topo: 0x000000, meio: 0x02030a, base: 0x080c20, luz: 0x8a90b4,
         sol: 1.3, corSol: 0xff7a3a, estrelas: 1, lua: 1, espaco: 1 }
 ];
+// A ultima fase e o espaco.
+const faseEspaco = fasesCeu.length - 1;
 // A partir de 160 troncos o jogo para de acelerar (3x a velocidade inicial).
 const velocidadeMaxima = 3;
 // Passaros inimigos aparecem a partir deste tronco; cada bicada derruba alguns granulados.
@@ -252,6 +257,16 @@ const som = {
     // Dois piados curtos avisam o passaro chegando.
     alertaPassaro() {
         [0, 0.12].forEach((atraso) => this.tom(2300, 0.06, { tipo: 'sine', volume: 0.06, ate: 3100, atraso }));
+    },
+    // Sirene de disco voador subindo e descendo.
+    alertaOvni() {
+        this.tom(500, 0.22, { tipo: 'sine', volume: 0.06, ate: 1100 });
+        this.tom(1100, 0.22, { tipo: 'sine', volume: 0.06, ate: 500, atraso: 0.22 });
+    },
+    choqueOvni() {
+        this.tom(1400, 0.2, { tipo: 'sawtooth', volume: 0.07, ate: 200 });
+        this.ruido(0.12, { volume: 0.2, frequencia: 4000 });
+        this.vibrar(40);
     },
     bicada() {
         this.ruido(0.08, { volume: 0.3, frequencia: 2600 });
@@ -501,6 +516,7 @@ function create(data = {}) {
     // O primeiro passaro chega logo depois de o gato alcancar a altura deles.
     // Os troncos sao criados antes do guaxinim; nao aproveita o da partida anterior.
     this.guaxinim = null;
+    this.espaco = null;
     this.passaros = [];
     this.esperaPassaro = 2500;
     this.vidaFundo = { esperaBorboleta: 2500, esperaBando: 6000, esperaVagalume: 0 };
@@ -526,7 +542,7 @@ function create(data = {}) {
         alturaInicialGato: alturaChao - 40, paralaxe: 0.12
     };
     criarCeu(this);
-    criarFolhas(this, -1, 1500);
+    this.folhasJogo = criarFolhas(this, -1, 1500);
     // Metade da altura do gato e 40: ele comeca com os pes na grama.
     // A caixa e so o corpo fisico; o gato visivel acompanha ela com
     // deformacao e inclinacao, sem mexer na area de colisao.
@@ -805,6 +821,18 @@ function criarTexturasEfeitos(cena) {
         g.lineStyle(3, contorno).strokePoints(pontos, true);
         g.generateTexture(chave, 80, 60);
     });
+    // OVNI com um alienigena na cupula; as luzes trocam de cor entre os dois quadros.
+    [['fx_ovni_a', [0xffe066, 0xff6fa8]], ['fx_ovni_b', [0xff6fa8, 0xffe066]]].forEach(([chave, cores]) => {
+        const contorno = 0x241629;
+        g.clear().fillStyle(0xbfeeff, 0.95).fillEllipse(50, 24, 38, 32);
+        g.fillStyle(0x7ed957).fillCircle(50, 25, 9);
+        g.fillStyle(contorno).fillEllipse(46.5, 24, 4.5, 6.5).fillEllipse(53.5, 24, 4.5, 6.5);
+        g.lineStyle(2.5, contorno).strokeEllipse(50, 24, 38, 32);
+        g.fillStyle(0x9aa3b5).fillEllipse(50, 38, 94, 24).lineStyle(3, contorno).strokeEllipse(50, 38, 94, 24);
+        g.fillStyle(0x6c7488).fillEllipse(50, 45, 58, 10);
+        [16, 33, 50, 67, 84].forEach((x, k) => g.fillStyle(cores[k % 2]).fillCircle(x, 38, 4));
+        g.generateTexture(chave, 100, 60);
+    });
     // Silhueta de passarinho distante para os bandos do fundo; a cor vem do tint.
     [['fx_ave_fundo_a', [[3, 4], [10, 9], [20, 13], [30, 9], [37, 4]]],
         ['fx_ave_fundo_b', [[3, 15], [10, 11], [20, 12], [30, 11], [37, 15]]]].forEach(([chave, asas]) => {
@@ -968,16 +996,27 @@ function criarBandoFundo(cena) {
     });
 }
 
-// Passaros inimigos cruzam a tela a partir de certa altura, ate a noite. Um "!" na
-// borda avisa um instante antes; a bicada derruba granulados, mas o jogo continua.
+// Passaros inimigos cruzam a tela a partir de certa altura, ate a noite; no espaco
+// viram OVNIs. Um "!" na borda avisa um instante antes; o esbarrao derruba
+// granulados, mas o jogo continua.
 function atualizarPassaros(cena, delta) {
-    if (cena.contador >= troncoPassaros && cena.ceu.fase < 4) {
+    const noEspaco = cena.ceu.fase >= faseEspaco;
+    if (cena.contador >= troncoPassaros) {
         cena.esperaPassaro -= delta;
         if (cena.esperaPassaro <= 0) {
-            criarPassaro(cena);
-            // Ficam mais frequentes conforme o gato sobe.
-            const intervalo = Phaser.Math.Clamp(9000 - (cena.contador - troncoPassaros) * 45, 3800, 9000);
-            cena.esperaPassaro = Phaser.Math.Between(intervalo - 1200, intervalo + 1200);
+            if (noEspaco) {
+                // OVNIs cada vez mais frequentes e, as vezes, em dupla, para nao virar padrao.
+                const alem = cena.contador - fasesCeu[faseEspaco].troncos;
+                criarPassaro(cena, true);
+                if (Math.random() < Phaser.Math.Clamp(alem / 150, 0.1, 0.5)) criarPassaro(cena, true, 0.6);
+                const intervalo = Phaser.Math.Clamp(4600 - alem * 15, 2300, 4600);
+                cena.esperaPassaro = Phaser.Math.Between(intervalo - 900, intervalo + 900);
+            } else {
+                criarPassaro(cena);
+                // Ficam mais frequentes conforme o gato sobe.
+                const intervalo = Phaser.Math.Clamp(9000 - (cena.contador - troncoPassaros) * 45, 3800, 9000);
+                cena.esperaPassaro = Phaser.Math.Between(intervalo - 1200, intervalo + 1200);
+            }
         }
     }
     const segundos = delta / 1000;
@@ -989,11 +1028,25 @@ function atualizarPassaros(cena, delta) {
         const passaro = cena.passaros[i];
         const imagem = passaro.imagem;
         passaro.tempo += segundos;
-        imagem.x += passaro.direcao * passaro.velocidade * segundos;
-        // Depois da bicada ele sobe e vai embora.
-        if (passaro.acertou) passaro.yBase -= 170 * segundos;
-        imagem.y = passaro.yBase + Math.sin(passaro.tempo * 7) * 5;
-        imagem.setTexture(Math.floor(passaro.tempo * 10) % 2 ? 'fx_passaro_b' : 'fx_passaro_a');
+        if (passaro.ovni) {
+            // O OVNI pode parar um instante no meio da tela e depois disparar mais rapido.
+            if (passaro.pararEm !== null && !passaro.acertou &&
+                (passaro.direcao > 0 ? imagem.x >= passaro.pararEm : imagem.x <= passaro.pararEm)) {
+                passaro.pararEm = null;
+                passaro.paradoAte = passaro.tempo + 0.7;
+                passaro.velocidade *= 1.7;
+            }
+            if (passaro.tempo >= (passaro.paradoAte || 0)) imagem.x += passaro.direcao * passaro.velocidade * segundos;
+            if (passaro.acertou) passaro.yBase -= 220 * segundos;
+            imagem.y = passaro.yBase + Math.sin(passaro.tempo * passaro.onda) * passaro.amplitude;
+            imagem.setTexture(Math.floor(passaro.tempo * 6) % 2 ? 'fx_ovni_b' : 'fx_ovni_a');
+        } else {
+            imagem.x += passaro.direcao * passaro.velocidade * segundos;
+            // Depois da bicada ele sobe e vai embora.
+            if (passaro.acertou) passaro.yBase -= 170 * segundos;
+            imagem.y = passaro.yBase + Math.sin(passaro.tempo * 7) * 5;
+            imagem.setTexture(Math.floor(passaro.tempo * 10) % 2 ? 'fx_passaro_b' : 'fx_passaro_a');
+        }
         if (passaro.alerta) {
             const entrou = passaro.direcao > 0 ? imagem.x > 0 : imagem.x < config.width;
             if (entrou) {
@@ -1004,8 +1057,8 @@ function atualizarPassaros(cena, delta) {
             }
         }
         if (!passaro.acertou && !protegido && !cena.morreu &&
-            Math.abs(imagem.x - corpo.center.x) < corpo.halfWidth + 16 &&
-            Math.abs(imagem.y - corpo.center.y) < corpo.halfHeight + 10) {
+            Math.abs(imagem.x - corpo.center.x) < corpo.halfWidth + (passaro.ovni ? 22 : 16) &&
+            Math.abs(imagem.y - corpo.center.y) < corpo.halfHeight + (passaro.ovni ? 8 : 10)) {
             bicarGato(cena, passaro);
         }
         const saiu = passaro.direcao > 0 ? imagem.x > config.width + 50 : imagem.x < -50;
@@ -1017,17 +1070,19 @@ function atualizarPassaros(cena, delta) {
     }
 }
 
-function criarPassaro(cena) {
+// O segundo OVNI de uma dupla (atrasoAviso > 0) vem do outro lado, um pouco depois.
+function criarPassaro(cena, ovni = false, atrasoAviso = 0) {
     const camera = cena.cameras.main;
-    const direcao = Math.random() < 0.5 ? 1 : -1;
+    const outro = cena.passaros[cena.passaros.length - 1];
+    const direcao = atrasoAviso && outro ? -outro.direcao : (Math.random() < 0.5 ? 1 : -1);
     const velocidade = Phaser.Math.Between(130, 170) * cena.velocidadeJogo ** 0.7;
     // Cruza um pouco acima do gato, na altura por onde ele vai passar no proximo pulo.
-    const y = Phaser.Math.Clamp(cena.caixa.y - Phaser.Math.Between(60, 220),
+    const y = Phaser.Math.Clamp(cena.caixa.y - Phaser.Math.Between(atrasoAviso ? 0 : 60, atrasoAviso ? 320 : 220),
         camera.scrollY + 120, camera.scrollY + config.height - 140);
     // Nasce fora da tela a cerca de um segundo de voo: e o tempo do aviso.
-    const distanciaAviso = velocidade * 1.1;
+    const distanciaAviso = velocidade * (1.1 + atrasoAviso);
     const x = direcao > 0 ? -30 - distanciaAviso : config.width + 30 + distanciaAviso;
-    const imagem = cena.add.image(x, y, 'fx_passaro_a').setScale(0.7)
+    const imagem = cena.add.image(x, y, ovni ? 'fx_ovni_a' : 'fx_passaro_a').setScale(ovni ? 0.6 : 0.7)
         .setFlipX(direcao < 0).setDepth(5.5);
     const alerta = cena.add.container(direcao > 0 ? 18 : config.width - 18, y, [
         cena.add.circle(0, 0, 13, 0xd9452f).setStrokeStyle(2.5, 0xfff4d6),
@@ -1035,8 +1090,18 @@ function criarPassaro(cena) {
             resolution: 4, fontFamily: 'Arial', fontSize: '19px', fontStyle: 'bold', color: '#fff4d6'
         }).setOrigin(0.5)
     ]).setDepth(9);
-    cena.passaros.push({ imagem, alerta, direcao, velocidade, yBase: y, tempo: 0, acertou: false });
-    som.alertaPassaro();
+    const passaro = { imagem, alerta, direcao, velocidade, yBase: y, tempo: 0, acertou: false, ovni };
+    if (ovni) {
+        // Cada OVNI balanca de um jeito, e metade deles para um pouco no meio do caminho.
+        passaro.onda = Phaser.Math.FloatBetween(2.5, 4.5);
+        passaro.amplitude = Phaser.Math.Between(25, 60);
+        passaro.pararEm = Math.random() < 0.5 ? Phaser.Math.Between(90, 270) : null;
+        passaro.paradoAte = 0;
+        som.alertaOvni();
+    } else {
+        som.alertaPassaro();
+    }
+    cena.passaros.push(passaro);
 }
 
 function bicarGato(cena, passaro) {
@@ -1047,10 +1112,15 @@ function bicarGato(cena, passaro) {
     caixa.protegidoAte = agora + 1500;
     // Empurrao curto para o lado em que o passaro voava.
     caixa.empurrao = { velocidade: passaro.direcao * 230 * cena.velocidadeJogo, ate: agora + 170 };
-    som.bicada();
+    if (passaro.ovni) {
+        som.choqueOvni();
+        cena.efeitos.brilho.explode(12, passaro.imagem.x, passaro.imagem.y);
+    } else {
+        som.bicada();
+        cena.efeitos.penas.explode(7, passaro.imagem.x, passaro.imagem.y);
+    }
     cena.cameras.main.shake(150, 0.006);
     deformarGato(cena, 0.8, 1.2, 380);
-    cena.efeitos.penas.explode(7, passaro.imagem.x, passaro.imagem.y);
     const perdidos = Math.min(granuladosBicada, cena.totalMoedas);
     if (perdidos > 0) {
         cena.totalMoedas -= perdidos;
@@ -1868,8 +1938,11 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     plataforma.body.updateFromGameObject();
     ajustarLarguraTronco(cena, plataforma);
     // Uma a cada tres plataformas se move; as duas primeiras ficam paradas.
-    if (!chao && numero % 3 === 0) {
-        const margemMovimento = plataforma.displayWidth / 2 + 12 + 40;
+    // No espaco, duas a cada tres se movem, e mais longe.
+    const noEspaco = cena.ceu && cena.ceu.fase >= faseEspaco;
+    const amplitude = noEspaco ? 55 : 40;
+    if (!chao && (numero % 3 === 0 || (noEspaco && numero % 3 === 1))) {
+        const margemMovimento = plataforma.displayWidth / 2 + 12 + amplitude;
         plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento,
             config.width - margemMovimento);
         plataforma.body.updateFromGameObject();
@@ -1877,7 +1950,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
             centro: plataforma.x,
             fase: 0,
             sentido: numero % 2 === 0 ? 1 : -1,
-            amplitude: 40,
+            amplitude,
             velocidade: 1.2
         };
     }
@@ -2193,7 +2266,165 @@ function criarTexturasCeu(cena) {
     g.fillStyle(0xd49a4a).fillEllipse(80, 40, 64, 8).fillEllipse(80, 60, 62, 7);
     g.lineStyle(6, 0xf3dca8, 0.95).strokePoints(anel(0, Math.PI));
     g.generateTexture('ceu_planeta', 160, 100);
+    criarTexturasEspaco(g);
     g.destroy();
+}
+
+// Planetas, asteroides, nebulosa, satelite e o Planeta Casspet, que passam no espaco.
+function criarTexturasEspaco(g) {
+    const listrado = (chave, base, faixas) => {
+        g.clear().fillStyle(base).fillCircle(64, 64, 56);
+        faixas.forEach(([y, altura, cor]) => g.fillStyle(cor).fillEllipse(64, y, 112 - Math.abs(y - 64) * 1.2, altura));
+        g.fillStyle(0xffffff, 0.18).fillEllipse(46, 42, 34, 22);
+        g.generateTexture(chave, 128, 128);
+    };
+    listrado('esp_gasoso_1', 0xe39b5b, [[40, 10, 0xc9773f], [58, 7, 0xf2c38c], [76, 12, 0xb8662f], [94, 8, 0xf0b579]]);
+    listrado('esp_gasoso_2', 0x6fa8d8, [[38, 8, 0x4f86c0], [60, 12, 0xa9d4f2], [84, 9, 0x3f73ad]]);
+    // Planeta vermelho com crateras.
+    g.clear().fillStyle(0xc4553a).fillCircle(64, 64, 50);
+    g.fillStyle(0x9e3f2a);
+    [[46, 48, 10], [80, 70, 13], [58, 88, 7], [86, 40, 6]].forEach(([x, y, r]) => g.fillCircle(x, y, r));
+    g.fillStyle(0xffffff, 0.16).fillEllipse(48, 42, 30, 18);
+    g.generateTexture('esp_vermelho', 128, 128);
+    // Planeta de gelo com anel roxo.
+    g.clear().lineStyle(6, 0xb58cf0, 0.85).strokeEllipse(80, 60, 150, 34);
+    g.fillStyle(0xdff4ff).fillCircle(80, 60, 36);
+    g.fillStyle(0xb8e2f7).fillEllipse(70, 50, 30, 14).fillEllipse(92, 72, 24, 10);
+    g.fillStyle(0xffffff, 0.35).fillEllipse(68, 46, 20, 12);
+    g.lineStyle(6, 0xc9a6ff, 0.95);
+    const frente = [];
+    for (let a = 0; a <= Math.PI + 0.001; a += Math.PI / 24) frente.push({ x: 80 + Math.cos(a) * 75, y: 60 + Math.sin(a) * 17 });
+    g.strokePoints(frente);
+    g.generateTexture('esp_anel', 160, 120);
+    // Asteroide irregular.
+    const pedra = [];
+    for (let k = 0; k < 9; k++) {
+        const a = k / 9 * Math.PI * 2;
+        const r = 22 + (k % 3) * 4 - (k % 2) * 3;
+        pedra.push({ x: 32 + Math.cos(a) * r, y: 32 + Math.sin(a) * r });
+    }
+    g.clear().fillStyle(0x8d8591).fillPoints(pedra, true).lineStyle(2, 0x5c5560).strokePoints(pedra, true);
+    g.fillStyle(0x6d6571).fillCircle(26, 28, 5).fillCircle(40, 40, 4);
+    g.generateTexture('esp_asteroide', 64, 64);
+    // Nebulosa: manchas macias e transparentes; a cor vem do tint.
+    g.clear();
+    [[128, 90, 80], [90, 110, 60], [170, 120, 56], [120, 140, 50], [70, 80, 40]].forEach(([x, y, r]) => {
+        for (let k = 4; k >= 1; k--) g.fillStyle(0xffffff, 0.05).fillCircle(x, y, r * k / 4);
+    });
+    g.generateTexture('esp_nebulosa', 256, 220);
+    // Satelite com paineis solares e uma patinha no corpo.
+    g.clear().fillStyle(0x3b5da8).fillRect(4, 22, 34, 20).fillRect(90, 22, 34, 20);
+    g.lineStyle(1.5, 0x9fc1ff, 0.8);
+    [13, 21, 29, 99, 107, 115].forEach((x) => g.lineBetween(x, 22, x, 42));
+    g.lineStyle(3, 0xc9ccd6).lineBetween(38, 32, 48, 32).lineBetween(80, 32, 90, 32);
+    g.fillStyle(0xe8e3d6).fillRoundedRect(48, 16, 32, 32, 5);
+    desenharPatinha(g, 64, 33, 0.32, 0xc58b55);
+    g.lineStyle(2, 0xc9ccd6).lineBetween(64, 16, 64, 6);
+    g.fillStyle(0xff6f6f).fillCircle(64, 5, 3);
+    g.generateTexture('esp_satelite', 128, 64);
+    // Planeta Casspet: cor de granulado, cratera em forma de patinha e anel de granulados.
+    const granulosAnel = (inicio, fim) => {
+        g.lineStyle(7, 0xb07845, 0.45);
+        const faixa = [];
+        for (let a = inicio; a <= fim + 0.001; a += Math.PI / 24) faixa.push({ x: 90 + Math.cos(a) * 82, y: 80 + Math.sin(a) * 19 });
+        g.strokePoints(faixa);
+        for (let a = inicio + Math.PI / 36; a < fim; a += Math.PI / 18) {
+            const x = 90 + Math.cos(a) * 82;
+            const y = 80 + Math.sin(a) * 19;
+            g.fillStyle(0xc58b55).fillRoundedRect(x - 4, y - 2.5, 8, 5, 2.5);
+            g.fillStyle(0xe8b77e).fillRoundedRect(x - 3, y - 2, 5, 1.6, 0.8);
+        }
+    };
+    g.clear();
+    granulosAnel(Math.PI, Math.PI * 2);
+    g.fillStyle(0xd9a066).fillCircle(90, 80, 52);
+    g.fillStyle(0xc58b55);
+    [[64, 56, 6], [112, 104, 5], [70, 108, 4], [118, 58, 4]].forEach(([x, y, r]) => g.fillCircle(x, y, r));
+    // A patinha e uma cratera: borda clara e fundo escuro.
+    desenharPatinha(g, 92, 82, 1.06, 0xf0c48a);
+    desenharPatinha(g, 92, 84, 1, 0x8a5a35);
+    g.fillStyle(0xffffff, 0.16).fillEllipse(66, 50, 34, 20);
+    granulosAnel(0, Math.PI);
+    g.generateTexture('esp_casspet', 180, 160);
+}
+
+// Patinha: almofada grande e quatro dedos.
+function desenharPatinha(g, x, y, escala, cor) {
+    g.fillStyle(cor);
+    g.fillEllipse(x, y + 10 * escala, 34 * escala, 27 * escala);
+    [[-21, -10, 6.5], [-8, -21, 7], [8, -21, 7], [21, -10, 6.5]].forEach(([dx, dy, r]) =>
+        g.fillEllipse(x + dx * escala, y + dy * escala, r * 1.7 * escala, r * 2.1 * escala));
+}
+
+// Objetos do espaco descem conforme o gato sobe (os maiores, mais perto, descem mais
+// rapido), giram e derivam devagar, para o fundo nunca ficar parado.
+function atualizarEspaco(cena, delta, espaco) {
+    if (!cena.espaco) cena.espaco = { objetos: [], distancia: 0, criados: 0, ultimoScroll: cena.cameras.main.scrollY };
+    const estado = cena.espaco;
+    const scroll = cena.cameras.main.scrollY;
+    const subida = Math.max(0, estado.ultimoScroll - scroll);
+    estado.ultimoScroll = scroll;
+    const segundos = delta / 1000;
+    // Folhas caindo nao combinam com o espaco.
+    const folhas = cena.folhasJogo;
+    if (folhas && espaco > 0.5 === folhas.emitting) {
+        if (folhas.emitting) folhas.stop();
+        else folhas.start();
+    }
+    if (espaco > 0.5 && cena.iniciado) {
+        estado.distancia += subida * 0.3 + segundos * 12;
+        if (estado.distancia > (estado.proximo || 120)) {
+            estado.distancia = 0;
+            estado.proximo = Phaser.Math.Between(170, 300);
+            criarObjetoEspaco(cena);
+        }
+    }
+    for (let i = estado.objetos.length - 1; i >= 0; i--) {
+        const objeto = estado.objetos[i];
+        const imagem = objeto.imagem;
+        imagem.y += subida * objeto.paralaxe + objeto.vy * segundos;
+        imagem.x += objeto.vx * segundos;
+        imagem.angle += objeto.giro * segundos;
+        imagem.setAlpha(objeto.alfa * Phaser.Math.Clamp(espaco, 0, 1));
+        if (imagem.y - imagem.displayHeight > config.height + 40 ||
+            imagem.x < -imagem.displayWidth || imagem.x > config.width + imagem.displayWidth) {
+            imagem.destroy();
+            estado.objetos.splice(i, 1);
+        }
+    }
+}
+
+function criarObjetoEspaco(cena) {
+    const estado = cena.espaco;
+    estado.criados += 1;
+    // O Planeta Casspet aparece logo no comeco do espaco e depois de vez em quando.
+    const casspet = estado.criados === 3 || (estado.criados > 3 && Math.random() < 0.1);
+    const tipo = casspet ? 'casspet' : Phaser.Utils.Array.GetRandom(
+        ['gasoso', 'gasoso', 'vermelho', 'anel', 'asteroide', 'asteroide', 'asteroide', 'nebulosa', 'satelite']);
+    const opcoes = {
+        casspet: { chave: 'esp_casspet', escala: [0.75, 0.85], giro: 0 },
+        gasoso: { chave: Math.random() < 0.5 ? 'esp_gasoso_1' : 'esp_gasoso_2', escala: [0.35, 0.7], giro: 0 },
+        vermelho: { chave: 'esp_vermelho', escala: [0.3, 0.55], giro: 4 },
+        anel: { chave: 'esp_anel', escala: [0.4, 0.55], giro: 0 },
+        asteroide: { chave: 'esp_asteroide', escala: [0.25, 0.55], giro: 40 },
+        nebulosa: { chave: 'esp_nebulosa', escala: [0.9, 1.3], giro: 0 },
+        satelite: { chave: 'esp_satelite', escala: [0.4, 0.5], giro: 12 }
+    }[tipo];
+    const escala = Phaser.Math.FloatBetween(opcoes.escala[0], opcoes.escala[1]);
+    const imagem = cena.add.image(Phaser.Math.Between(30, config.width - 30), 0, opcoes.chave)
+        .setScale(escala).setScrollFactor(0).setDepth(tipo === 'nebulosa' ? -2.88 : -2.8)
+        .setAngle(Phaser.Math.Between(-20, 20));
+    imagem.y = -imagem.displayHeight / 2 - 10;
+    if (tipo === 'nebulosa') imagem.setTint(Phaser.Utils.Array.GetRandom([0xb07cff, 0x5fd3c8, 0xff7fb0]));
+    const sentido = Math.random() < 0.5 ? -1 : 1;
+    estado.objetos.push({
+        imagem,
+        alfa: tipo === 'nebulosa' ? 0.8 : 1,
+        paralaxe: tipo === 'nebulosa' ? 0.08 : 0.12 + escala * 0.3,
+        vy: Phaser.Math.Between(6, 14),
+        vx: sentido * Phaser.Math.Between(2, tipo === 'asteroide' || tipo === 'satelite' ? 22 : 8),
+        giro: sentido * opcoes.giro * Phaser.Math.FloatBetween(0.5, 1)
+    });
 }
 
 // Ceu atras do cenario (que nao tem ceu): degrade, sol, estrelas, lua e planetas.
@@ -2238,7 +2469,7 @@ function atualizarCeu(cena, delta) {
     const cor = (campo) => misturarCor(atual[campo], proxima[campo], t);
     if (indice > ceu.fase) {
         ceu.fase = indice;
-        mostrarFaixa(cena, atual.aviso[0], atual.aviso[1], atual.cor);
+        if (mostrarAvisosCeu) mostrarFaixa(cena, atual.aviso[0], atual.aviso[1], atual.cor);
     }
 
     // O degrade so e redesenhado quando as cores mudam.
@@ -2270,7 +2501,9 @@ function atualizarCeu(cena, delta) {
 
     // As estrelas descem devagar enquanto o gato sobe e piscam.
     const estrelas = valor('estrelas');
-    const deriva = troncos * alturaPorTronco * 0.03;
+    // No espaco as estrelas tambem andam com o tempo, mesmo com o gato parado.
+    ceu.derivaTempo = (ceu.derivaTempo || 0) + delta / 1000 * 5 * valor('espaco');
+    const deriva = troncos * alturaPorTronco * 0.03 + ceu.derivaTempo;
     ceu.estrelas.setVisible(estrelas > 0).setAlpha(estrelas);
     ceu.estrelas.tilePositionY = -deriva * 2;
     ceu.brilhos.forEach((brilho) => {
@@ -2278,11 +2511,15 @@ function atualizarCeu(cena, delta) {
         brilho.imagem.setPosition(brilho.x, Phaser.Math.Wrap(brilho.y + deriva, -10, config.height + 10))
             .setAlpha(estrelas * pisca).setVisible(estrelas > 0);
     });
+    // No espaco a Lua, a Terra e o planeta com anel descem devagar e ficam para tras.
+    const subidaEspaco = Math.max(0, troncos - fasesCeu[faseEspaco].troncos) * alturaPorTronco * 0.08;
     const lua = valor('lua');
-    ceu.lua.setAlpha(lua).setVisible(lua > 0);
+    ceu.lua.setAlpha(lua).setVisible(lua > 0).setY(config.height * 0.2 + subidaEspaco * 0.7);
     const espaco = valor('espaco');
-    ceu.terra.setAlpha(espaco).setVisible(espaco > 0).setAngle(ceu.tempo * 3);
-    ceu.planeta.setAlpha(espaco).setVisible(espaco > 0);
+    ceu.terra.setAlpha(espaco).setVisible(espaco > 0).setAngle(ceu.tempo * 3)
+        .setY(config.height * 0.68 + subidaEspaco);
+    ceu.planeta.setAlpha(espaco).setVisible(espaco > 0).setY(config.height * 0.24 + subidaEspaco * 0.85);
+    atualizarEspaco(cena, delta, espaco);
     if (estrelas > 0.5 && cena.iniciado && cena.time.now > ceu.proximaCadente) {
         ceu.proximaCadente = cena.time.now + Phaser.Math.Between(2500, 6000);
         criarEstrelaCadente(cena);
