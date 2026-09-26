@@ -105,7 +105,7 @@ const chaveLoja = 'granulando.loja';
 const itensLoja = {
     bichos: [
         { id: 'gato', nome: 'Gato', preco: 0 },
-        { id: 'coelho', nome: 'Coelho', preco: 1500, emBreve: true },
+        { id: 'coelho', nome: 'Coelho', preco: 1500, arte: 'assets/bichos/coelho/' },
         { id: 'hamster', nome: 'Hamster', preco: 1500, emBreve: true },
         { id: 'passaro', nome: 'Pássaro', preco: 2000, emBreve: true },
         { id: 'porquinho', nome: 'Porquinho-da-índia', preco: 2500, emBreve: true },
@@ -129,6 +129,9 @@ const itensLoja = {
         { id: 'capacete', nome: 'Capacete espacial', preco: 1000 }
     ]
 };
+// As 4 poses: chave da textura do gato e nome do arquivo de cada bicho em assets/bichos/<id>/.
+// As imagens dos bichos tem 2048 x 2048, como as do gato, com os pes na mesma altura.
+const posesBicho = { mascote_1: 'parado', quasePulando: 'quasePulando', pulando: 'pulando', caindo: 'caindo' };
 // Onde cada acessorio fica em cada pose do gato, em pixels das imagens de 2048: topo da
 // cabeca, meio dos olhos e pescoco, a largura da cabeca e a inclinacao dela.
 const cabecaGato = {
@@ -556,6 +559,10 @@ function preload() {
     this.load.image('pulando', 'assets/pulando.png');
     this.load.image('quasePulando', 'assets/3quasepualndo.png');
     this.load.image('caindo', 'assets/caindo.png');
+    itensLoja.bichos.filter((bicho) => bicho.arte).forEach((bicho) => {
+        Object.entries(posesBicho).forEach(([pose, arquivo]) =>
+            this.load.image(bicho.id + '_' + pose, bicho.arte + arquivo + '.webp'));
+    });
     this.load.image('moeda', 'assets/moeda-jogo.png');
     this.load.svg('moedaDourada', 'assets/granulado-dourado.svg');
     this.load.image('introducao', 'assets/inicio2.png');
@@ -623,12 +630,12 @@ function create(data = {}) {
     // Metade da altura do gato e 40: ele comeca com os pes na grama.
     // A caixa e so o corpo fisico; o gato visivel acompanha ela com
     // deformacao e inclinacao, sem mexer na area de colisao.
-    this.caixa = this.add.image(config.width / 2, alturaChao - 40, 'mascote_1')
+    this.loja = lerLoja();
+    this.caixa = this.add.image(config.width / 2, alturaChao - 40, texturaPose(this, 'mascote_1'))
         .setDisplaySize(78, 80).setVisible(false);
-    this.gato = this.add.image(this.caixa.x, this.caixa.y + 40, 'mascote_1')
+    this.gato = this.add.image(this.caixa.x, this.caixa.y + 40, texturaPose(this, 'mascote_1'))
         .setOrigin(0.5, 1).setDepth(5);
     this.deformacao = { x: 1, y: 1 };
-    this.loja = lerLoja();
     vestirGato(this, this.gato);
     atualizarCenario(this, 0);
     this.physics.add.existing(this.caixa);
@@ -2294,7 +2301,7 @@ function aplicarImpulsoDourado(caixa, forca = 640) {
     // O dourado usa 640; o comando secreto usa um impulso mais forte.
     caixa.quedaSemVolta = false;
     caixa.poseContatoAte = 0;
-    caixa.setTexture('pulando').setDisplaySize(78, 80);
+    caixa.setTexture(texturaPose(cena, 'pulando')).setDisplaySize(78, 80);
     caixa.body.setVelocityY(Math.min(caixa.body.velocity.y, -forca * cena.velocidadeJogo));
     // Deixa um rastro dourado enquanto o impulso dura.
     caixa.turboAte = cena.time.now + 700;
@@ -2780,6 +2787,10 @@ function mostrarLoja(cena, aoFechar) {
         }
         loja.equipado[grupo] = item.id;
         salvarLoja(loja);
+        if (grupo === 'bichos') {
+            cena.caixa.setTexture(texturaPose(cena, 'mascote_1', loja)).setDisplaySize(78, 80);
+            cena.gato.setTexture(cena.caixa.texture.key);
+        }
         vestirGato(cena, cena.gato, loja);
         desenharCartoes();
     };
@@ -2793,6 +2804,10 @@ function mostrarLoja(cena, aoFechar) {
             texto.setColor(ativa ? '#ffffff' : corTexto);
         });
         const itens = itensLoja[abaAtual];
+        if (abaAtual !== 'bichos' && loja.equipado.bichos !== 'gato') {
+            cartoes.add(cena.add.text(180, altura - 100, 'Pelagens e acessórios aparecem só no gato.',
+                estilo(12, '#f4ddc9')).setOrigin(0.5));
+        }
         const topo = 138;
         const alturaCartao = Math.min(150, (altura - 100 - topo - 16) / 3);
         itens.forEach((item, i) => {
@@ -2812,9 +2827,13 @@ function mostrarLoja(cena, aoFechar) {
                 cartoes.add(cena.add.text(x, yFigura - 4, '?', estilo(26, corTexto, { fontStyle: 'bold' })).setOrigin(0.5));
             } else {
                 const provador = { ...loja, equipado: { ...loja.equipado, [abaAtual]: item.id } };
-                // Os pes do gato ficam a 84% da altura da imagem.
-                const figura = cena.add.image(x, y - alturaCartao / 2 + alturaCartao * 0.62, 'mascote_1')
-                    .setOrigin(0.5, 0.84).setScale(alturaCartao * 0.95 / 2048).setScrollFactor(0).setDepth(30.5);
+                // Pelagens e acessorios aparecem no gato, mesmo com outro bicho escolhido.
+                if (abaAtual !== 'bichos') provador.equipado.bichos = 'gato';
+                // Os pes ficam a 84% da altura da imagem.
+                const figura = cena.add.image(x, y - alturaCartao / 2 + alturaCartao * 0.62,
+                    texturaPose(cena, 'mascote_1', provador))
+                    // Na aba de bichos a figura e menor: as orelhas do coelho sao mais altas.
+                    .setOrigin(0.5, 0.84).setScale(alturaCartao * (abaAtual === 'bichos' ? 0.78 : 0.95) / 2048).setScrollFactor(0).setDepth(30.5);
                 vestirGato(cena, figura, provador);
                 cartoes.add(figura);
                 if (figura.acessorio) cartoes.add(figura.acessorio);
@@ -2849,11 +2868,22 @@ function mostrarLoja(cena, aoFechar) {
     return tela;
 }
 
+// Textura de uma pose do gato, ou a mesma pose do bicho escolhido na loja.
+function texturaPose(cena, pose, loja = cena.loja) {
+    const bicho = loja && loja.equipado.bichos;
+    return bicho && bicho !== 'gato' ? bicho + '_' + pose : pose;
+}
+
 // Aplica a pelagem e o acessorio escolhidos na loja a uma imagem do gato.
 function vestirGato(cena, gato, loja = cena.loja) {
-    gato.setTint(itemEquipado(loja, 'pelagens').cor);
     if (gato.acessorio) gato.acessorio.destroy();
     gato.acessorio = null;
+    // Pelagens e acessorios sao feitos para o gato; os outros bichos ficam como sao.
+    if (loja.equipado.bichos !== 'gato') {
+        gato.clearTint();
+        return;
+    }
+    gato.setTint(itemEquipado(loja, 'pelagens').cor);
     const acessorio = itemEquipado(loja, 'acessorios').id;
     if (acessorio === 'nenhum') return;
     const encaixe = encaixeAcessorio[acessorio];
@@ -2984,7 +3014,7 @@ function pular(caixa, plataforma) {
     // Gravidade proporcional ao quadrado preserva a altura e o alcance do salto.
     cena.physics.world.gravity.y = config.physics.arcade.gravity.y * velocidade ** 2;
     // A pose de contato acompanha o ritmo do jogo.
-    caixa.setTexture('quasePulando').setDisplaySize(78, 80);
+    caixa.setTexture(texturaPose(cena, 'quasePulando')).setDisplaySize(78, 80);
     caixa.poseContatoAte = cena.time.now + 120 / velocidade;
     // Garante o impulso mesmo quando a plataforma quebra.
     caixa.body.setVelocityY(-400 * velocidade);
@@ -3018,15 +3048,15 @@ function update(time, delta) {
     if (!this.caixa.quedaSemVolta && this.caixa.body.velocity.y > 0 &&
         !temPlataformaAlcancavel(this)) {
         this.caixa.quedaSemVolta = true;
-        this.caixa.setTexture('caindo').setDisplaySize(78, 80);
+        this.caixa.setTexture(texturaPose(this, 'caindo')).setDisplaySize(78, 80);
     }
 
     // Mantem o contato breve; depois escolhe a pose pela direcao vertical.
-    const mostrandoContato = this.caixa.texture.key === 'quasePulando' &&
+    const mostrandoContato = this.caixa.texture.key === texturaPose(this, 'quasePulando') &&
         this.time.now < this.caixa.poseContatoAte;
     if (!mostrandoContato &&
         (this.caixa.body.velocity.y !== 0 || this.caixa.poseContatoAte !== undefined)) {
-        const pose = this.caixa.body.velocity.y > 0 ? 'caindo' : 'pulando';
+        const pose = texturaPose(this, this.caixa.body.velocity.y > 0 ? 'caindo' : 'pulando');
         if (this.caixa.texture.key !== pose) {
             this.caixa.setTexture(pose).setDisplaySize(78, 80);
         }

@@ -79,9 +79,12 @@ ser revista em CONFIGURACOES > HISTORIA.
 - `itensLoja`: **bichos** (o foco, decisao do usuario: animais que tambem usam o granulado - coelho, hamster,
   passaro, porquinho-da-india, iguana), **pelagens** (tint sobre o gato; so escurece ou muda o tom) e
   **acessorios** desenhados no codigo (`ac_*`), presos na cabeca por `cabecaGato` em cada uma das 4 poses.
-- Os bichos estao "em breve": precisam de 4 poses cada (parado, quase pulando, pulando, caindo), no estilo e
-  no tamanho do gato. As artes estao sendo geradas no Magnific do usuario (autorizado); a rede do ambiente
-  precisa liberar `pikaso.cdnpk.net` para baixar os resultados.
+- Bichos com arte ficam em `assets/bichos/<id>/` (parado, quasePulando, pulando, caindo `.webp`, 2048 x 2048,
+  pes alinhados com os do gato: o corpo fisico usa essa medida). `texturaPose` troca as poses do gato pelas do
+  bicho escolhido. Pelagens e acessorios valem so para o gato. O **coelho** ja tem arte; os outros estao
+  "em breve".
+- As artes sao geradas no Magnific do usuario (autorizado), com o bicho anterior e a pose do gato como
+  referencia; o usuario escolhe as opcoes. O ambiente precisa acessar `pikaso.cdnpk.net` para baixar.
 
 ## Ideias guardadas pelo usuario (ainda nao feitas)
 
