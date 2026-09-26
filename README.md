@@ -37,6 +37,8 @@ A tela se ajusta ao formato do celular: o mundo tem sempre 360 de largura e a al
 - `assets/`: imagens originais e texturas usadas no jogo.
 - `assets/cenario/`: faixas WebP do cenario, geradas a partir do SVG.
 - `ferramentas/gerar-cenario.html`: gera as faixas do cenario.
+- `ferramentas/desenhar-cenario.html`: desenha em codigo o cenario novo (em previa) e gera as faixas de `assets/cenario-novo/`.
+- `cenario-novo.html`: previa jogavel do cenario redesenhado, com um botao SUBIR para ver todas as alturas rapido.
 
 O cenario vem da arte completa de `assets/Cenario Jogo 1.svg` (tronco, copa, nuvens e base), mas o jogo carrega faixas WebP ja desenhadas em `assets/cenario/` (cerca de 600 KB no total, contra 12 MB do SVG), o que deixa o carregamento rapido no celular. As faixas tem ate 1399 x 2048 px, com margens de filtragem que ficam fora da area desenhada. Ao gerar, a ferramenta tira o degrade do ceu (o fundo fica transparente), fecha as frestas entre as formas encostadas do SVG e suaviza as emendas entre os blocos repetidos do tronco. **Sempre que o SVG mudar**, abra `http://localhost:8000/ferramentas/gerar-cenario.html` com o servidor rodando, clique em "Gerar faixas" e salve os arquivos baixados em `assets/cenario/`. A camera revela o cenario durante a subida.
 

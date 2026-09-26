@@ -68,6 +68,15 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   dia, fim de tarde (30), por do sol (65), noite (95) e espaco (150), com sol que se poe, estrelas, estrelas
   cadentes, lua, Terra e planeta com anel; a luz do cenario acompanha. Aprovado pelo usuario. As fases evitam
   multiplos de 20 (aviso de "MAIS RAPIDO!") e a noite vem antes da copa do pinheiro (~110 a ~185 troncos).
+- **Cenario redesenhado (previa, aguardando aprovacao):** `ferramentas/desenhar-cenario.html` desenha tudo em
+  codigo (Canvas 2D): tronco com veios, espirais, olhinhos, raizes, trepadeira, orelhas-de-pau, coracao com
+  patinha, ninho, esquilo, coruja e galhos de pinheiro; floresta, montanhas com neve, cachoeira, portinha de fada,
+  cogumelos e granulados caidos no pe; nuvens; e a copa do pinheiro em andares com neve no alto. Gera
+  `assets/cenario-novo/` (1024 x 12264, 1,5x mais nitido que o antigo e sem esticar; mesmas alturas do antigo,
+  com a ponta da copa em 9054 = 6036 x 1,5, para `troncoFimCopa` e as fases do ceu continuarem batendo).
+  `cenario-novo.html` liga `window.previaCenario`, que troca `texturaCenario` e mostra um botao SUBIR (so na
+  previa). Ao aprovar: faixas novas em `assets/cenario/`, medidas novas em `texturaCenario`, sem o interruptor,
+  o SUBIR e a pagina de previa.
 - **Titulos de fase** ("FIM DE TARDE", "ESPACO!"): desligados em teste pelo interruptor `mostrarAvisosCeu`.
 - **Espaco em movimento:** Terra, Lua e planeta com anel descem e ficam para tras; `atualizarEspaco` solta
   planetas, asteroides, nebulosas, satelite e o **Planeta Casspet** (cor de granulado, cratera de patinha e anel

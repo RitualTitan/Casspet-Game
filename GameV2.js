@@ -39,16 +39,20 @@ const config = {
 const enquadramentoCenario = {
     abertura: 0.28,
     jogo: 0.40,
-    esticamentoHorizontal: 1.15,
-    centroTronco: 665,
     duracao: 900
 };
-// Medidas das faixas em assets/cenario/ (iguais as de ferramentas/gerar-cenario.html).
-const texturaCenario = {
-    largura: 1399,
-    altura: 8192,
-    alturaFaixa: 2044,
-    margem: 2
+// Previa do cenario redesenhado (cenario-novo.html). No jogo oficial fica desligada.
+const previaCenario = window.previaCenario === true;
+// Medidas das faixas do cenario (iguais as da ferramenta que as gera). `larguraMadeira` e a
+// largura, em px da arte, que o enquadramento trata como a madeira, e `esticamento` alarga a
+// arte na horizontal. O cenario novo (ferramentas/desenhar-cenario.html) e 1,5x mais detalhado,
+// nao e esticado e mantem as alturas do antigo, para o ceu e o espaco continuarem batendo.
+const texturaCenario = previaCenario ? {
+    pasta: 'assets/cenario-novo', largura: 1024, altura: 12264, alturaFaixa: 2044, margem: 2,
+    centroTronco: 512, larguraMadeira: 273.75, esticamento: 1
+} : {
+    pasta: 'assets/cenario', largura: 1399, altura: 8192, alturaFaixa: 2044, margem: 2,
+    centroTronco: 665, larguraMadeira: 182.5, esticamento: 1.15
 };
 // Cada tronco fica em media 212 acima do anterior (190 a 235, em gerarPlataformas).
 const alturaPorTronco = 212;
@@ -552,7 +556,7 @@ function preload() {
     // As faixas vem sem o degrade do ceu, que e desenhado no jogo (criarCeu).
     const quantidadeFaixas = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
     for (let i = 0; i < quantidadeFaixas; i++) {
-        this.load.image('cenario_' + i, `assets/cenario/cenario-${i}.webp`);
+        this.load.image('cenario_' + i, `${texturaCenario.pasta}/cenario-${i}.webp`);
     }
     this.load.svg('troncoLiso', 'assets/tronco liso.svg');
     this.load.svg('troncoRachado', 'assets/tronco rachado.svg');
@@ -625,7 +629,7 @@ function create(data = {}) {
         // As faixas se encostam; a margem fica fora da area visivel do frame.
         const y = inicio - texturaCenario.altura;
         cenarioFundo.add(this.add.image(0, y, 'cenario_' + i, 'miolo')
-            .setOrigin(enquadramentoCenario.centroTronco / texturaCenario.largura, 0));
+            .setOrigin(texturaCenario.centroTronco / texturaCenario.largura, 0));
     }
     this.cenario = {
         base: cenarioFundo, deslocamento: 0, alvo: 0,
@@ -1460,6 +1464,29 @@ function criarHud(cena) {
             delay: 400 + i * 80, ease: 'Back.easeOut'
         });
     });
+    if (previaCenario) criarBotaoSubir(cena);
+}
+
+// So na previa do cenario: um super pulo para ver a arte inteira rapido, com a altura ao lado.
+function criarBotaoSubir(cena) {
+    const botao = cena.add.text(10, 58, '▲ SUBIR', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold',
+        color: '#382017', backgroundColor: '#ffd24a', padding: { x: 10, y: 6 }
+    }).setScrollFactor(0).setDepth(12).setInteractive({ useHandCursor: true });
+    botao.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
+        // Nao deixa o toque retomar a pausa.
+        evento.stopPropagation();
+        if (!cena.iniciado || cena.morreu || cena.pausado) return;
+        aplicarImpulsoDourado(cena.caixa, 1500);
+    });
+    const altura = cena.add.text(84, 70, '', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '11px', fontStyle: 'bold',
+        color: corTexto, stroke: '#1a0e08', strokeThickness: 3
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(12);
+    const mostrar = () => altura.setText(`${Math.floor(cena.alturaMax / alturaPorTronco)} troncos de altura`);
+    mostrar();
+    cena.events.on('update', mostrar);
+    cena.events.once('shutdown', () => cena.events.off('update', mostrar));
 }
 
 // Botao redondo de madeira com um icone claro desenhado por cima.
@@ -2523,10 +2550,9 @@ function enquadrarCenario(cena, larguraTronco, duracao = 900, aoConcluir = () =>
 
 function atualizarCenario(cena, delta) {
     const fundo = cena.cenario;
-    // Nas faixas de 1399 px, o tronco ocupa cerca de 182,5 px.
-    const escala = config.width * fundo.larguraTronco / 182.5;
-    // Centraliza pela madeira da arte e alarga o cenario em 15%.
-    fundo.base.setScale(escala * enquadramentoCenario.esticamentoHorizontal, escala);
+    const escala = config.width * fundo.larguraTronco / texturaCenario.larguraMadeira;
+    // Centraliza pela madeira da arte e, no cenario antigo, alarga a arte em 15%.
+    fundo.base.setScale(escala * texturaCenario.esticamento, escala);
     fundo.base.x = config.width / 2;
     fundo.alvo = Math.max(fundo.alvo,
         (fundo.alturaInicialGato - cena.caixa.y) * fundo.paralaxe);

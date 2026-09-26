@@ -1,0 +1,1586 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Desenhar cenario</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #233c24; color: #ffe1a6; margin: 24px; }
+    button { font-size: 16px; padding: 10px 18px; background: #634128; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+    #faixas { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+    #faixas figure { margin: 0; text-align: center; }
+    #faixas img { width: 120px; display: block; border: 2px solid #ffe1a6; background: #7fb8e6; }
+    a { color: #ffd24a; }
+  </style>
+</head>
+<body>
+  <h1>Desenhar cenario do jogo</h1>
+  <p>
+    Desenha em codigo todo o cenario (tronco, raizes, floresta, montanhas, cachoeira, nuvens, galhos,
+    detalhes e a copa do pinheiro) e gera as faixas WebP que o jogo carrega. O fundo fica transparente:
+    o ceu e desenhado pelo jogo. Salve os arquivos baixados em <code>assets/cenario-novo/</code>.
+  </p>
+  <p>Abra esta pagina pelo servidor local do jogo (por exemplo http://localhost:8000/ferramentas/desenhar-cenario.html).</p>
+  <button id="gerar">Desenhar faixas</button>
+  <p id="estado"></p>
+  <div id="faixas"></div>
+  <script>
+    // Medidas da arte. A arte e 1,5x mais detalhada que a antiga (8192 px) e nao e esticada
+    // pelo jogo; a altura das coisas segue a antiga para o ceu e o espaco continuarem batendo.
+    // `topoCopa` e a ponta do pinheiro (6036 x 1,5 da arte antiga), usada por troncoFimCopa no jogo.
+    const arte = { largura: 1024, altura: 12264, alturaFaixa: 2044, margem: 2, centro: 512, topoCopa: 9054 };
+    const A = arte.altura;
+    const CX = arte.centro;
+    // Altura contada de baixo para cima (0 = pe da arte) para y do canvas.
+    const Y = (r) => A - r;
+
+    const cores = {
+      contorno: '#3b1f14',
+      troncoLuz: '#f8c070', troncoClaro: '#f2a24e', troncoBase: '#e68c3a', troncoSombra: '#c96c29', troncoEscuro: '#a9561f',
+      veio: '#b95d22', veioClaro: '#ffd08e',
+      folhaEscura: '#2f6b2e', folha: '#4f9a3c', folhaClara: '#8cc63f', folhaBrilho: '#c7e05a', folhaContorno: '#1f4a22',
+      pinho: '#2f7a45', pinhoClaro: '#5fae55', pinhoBrilho: '#9bd46a', pinhoEscuro: '#1f5a33', pinhoContorno: '#173d26',
+      nuvem: '#ffffff', nuvemSombra: '#dce8f6', nuvemContorno: '#a8c0dc',
+      pedra: '#a7a9b0', pedraClara: '#c9ccd3', pedraEscura: '#7b7f88',
+      terra: '#7a4a2a', grama: '#5aa33c'
+    };
+
+    // Numeros aleatorios com semente: o desenho sai sempre igual.
+    function criarSorteio(semente) {
+      return function () {
+        semente = semente + 0x6D2B79F5 | 0;
+        let t = Math.imul(semente ^ semente >>> 15, 1 | semente);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+    let sorte = criarSorteio(2026);
+    const entre = (a, b) => a + (b - a) * sorte();
+    const escolher = (lista) => lista[Math.floor(sorte() * lista.length)];
+
+    // Ruido suave em 1D, para bordas organicas (x >= 0).
+    function criarRuido(semente, passo) {
+      const s = criarSorteio(semente);
+      const valores = [];
+      return (x) => {
+        const i = Math.floor(Math.max(0, x) / passo);
+        const t = Math.max(0, x) / passo - i;
+        while (valores.length <= i + 1) valores.push(s() * 2 - 1);
+        const u = t * t * (3 - 2 * t);
+        return valores[i] + (valores[i + 1] - valores[i]) * u;
+      };
+    }
+
+    // Curva suave (Catmull-Rom) passando pelos pontos.
+    function tracarCurva(caminho, pontos, fechado) {
+      const n = pontos.length;
+      const ponto = (i) => fechado ? pontos[(i + n) % n] : pontos[Math.max(0, Math.min(n - 1, i))];
+      caminho.moveTo(pontos[0][0], pontos[0][1]);
+      const ultimo = fechado ? n : n - 1;
+      for (let i = 0; i < ultimo; i++) {
+        const p0 = ponto(i - 1), p1 = ponto(i), p2 = ponto(i + 1), p3 = ponto(i + 2);
+        caminho.bezierCurveTo(
+          p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6,
+          p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6,
+          p2[0], p2[1]);
+      }
+      if (fechado) caminho.closePath();
+      return caminho;
+    }
+    const curva = (pontos, fechado = true) => tracarCurva(new Path2D(), pontos, fechado);
+
+    // Uniao de circulos como um caminho so (nuvens, copas, arbustos).
+    function uniaoCirculos(circulos, folga = 0) {
+      const caminho = new Path2D();
+      for (const [x, y, r] of circulos) {
+        caminho.moveTo(x + r + folga, y);
+        caminho.arc(x, y, r + folga, 0, Math.PI * 2);
+      }
+      return caminho;
+    }
+
+    // Preenche com contorno por fora: o contorno e a mesma forma engordada, desenhada antes.
+    function formaComContorno(ctx, circulos, cor, contorno, espessura) {
+      ctx.fillStyle = contorno;
+      ctx.fill(uniaoCirculos(circulos, espessura));
+      ctx.fillStyle = cor;
+      ctx.fill(uniaoCirculos(circulos));
+    }
+
+    // Desenha dentro de um caminho (sombras e brilhos que nao vazam da forma).
+    function dentro(ctx, caminho, desenhar) {
+      ctx.save();
+      ctx.clip(caminho);
+      desenhar();
+      ctx.restore();
+    }
+
+    function comDesfoque(ctx, raio, desenhar) {
+      ctx.save();
+      ctx.filter = `blur(${raio}px)`;
+      desenhar();
+      ctx.restore();
+    }
+
+    // ---------------------------------------------------------------- nuvens
+    function circulosNuvem(cx, cy, largura, altura) {
+      const circulos = [];
+      const n = Math.max(3, Math.round(largura / (altura * 0.55)));
+      // Base achatada com bolinhas pequenas e o topo com bolas maiores no meio.
+      for (let i = 0; i < n; i++) {
+        const t = n === 1 ? 0.5 : i / (n - 1);
+        const x = cx - largura / 2 + altura * 0.3 + t * (largura - altura * 0.6);
+        circulos.push([x, cy + altura * 0.18, altura * entre(0.28, 0.34)]);
+        const bojo = Math.sin(t * Math.PI);
+        circulos.push([x + entre(-8, 8), cy - altura * (0.05 + bojo * 0.28), altura * (0.3 + bojo * entre(0.22, 0.3))]);
+      }
+      return circulos;
+    }
+
+    function nuvem(ctx, cx, cy, largura, altura) {
+      const circulos = circulosNuvem(cx, cy, largura, altura);
+      formaComContorno(ctx, circulos, cores.nuvem, cores.nuvemContorno, 5);
+      const forma = uniaoCirculos(circulos);
+      dentro(ctx, forma, () => {
+        comDesfoque(ctx, altura * 0.08, () => {
+          ctx.fillStyle = cores.nuvemSombra;
+          ctx.beginPath();
+          ctx.ellipse(cx + largura * 0.06, cy + altura * 0.42, largura * 0.62, altura * 0.3, 0, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        // Brilho no alto de cada bola.
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        for (const [x, y, r] of circulos) {
+          if (y > cy) continue;
+          ctx.beginPath();
+          ctx.ellipse(x - r * 0.25, y - r * 0.35, r * 0.35, r * 0.18, -0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    // ---------------------------------------------------------------- vegetacao de fundo
+    function copaRedonda(ctx, cx, cy, raio, paleta = {}) {
+      const p = { base: cores.folha, sombra: cores.folhaEscura, luz: cores.folhaClara, brilho: cores.folhaBrilho, contorno: cores.folhaContorno, ...paleta };
+      const circulos = [[cx, cy, raio * 0.62]];
+      const n = 9;
+      for (let i = 0; i < n; i++) {
+        const a = i / n * Math.PI * 2 + entre(-0.2, 0.2);
+        const d = raio * entre(0.42, 0.55);
+        circulos.push([cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.85, raio * entre(0.34, 0.46)]);
+      }
+      formaComContorno(ctx, circulos, p.base, p.contorno, Math.max(3, raio * 0.05));
+      const forma = uniaoCirculos(circulos);
+      dentro(ctx, forma, () => {
+        comDesfoque(ctx, raio * 0.06, () => {
+          ctx.fillStyle = p.sombra;
+          for (const [x, y, r] of circulos) {
+            ctx.beginPath();
+            ctx.arc(x + r * 0.3, y + r * 0.45, r * 0.8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        });
+        // Cachos de folha iluminados, do alto para a esquerda.
+        for (const [x, y, r] of circulos) {
+          ctx.fillStyle = p.base;
+          ctx.beginPath();
+          ctx.arc(x - r * 0.08, y - r * 0.1, r * 0.72, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = p.luz;
+          ctx.beginPath();
+          ctx.arc(x - r * 0.22, y - r * 0.25, r * 0.48, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = p.brilho;
+          ctx.beginPath();
+          ctx.ellipse(x - r * 0.32, y - r * 0.38, r * 0.2, r * 0.13, -0.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Folhinhas soltas sobre a copa.
+        for (let i = 0; i < raio * 0.5; i++) {
+          const a = entre(0, Math.PI * 2), d = entre(0, raio * 0.9);
+          const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+          ctx.fillStyle = y < cy ? 'rgba(210,235,120,0.55)' : 'rgba(25,70,30,0.35)';
+          ctx.beginPath();
+          ctx.ellipse(x, y, raio * 0.035, raio * 0.02, entre(0, Math.PI), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function arvoreRedonda(ctx, x, chao, alturaTronco, raio, paleta) {
+      // Tronco fino com um galho, atras da copa.
+      const largura = raio * 0.2;
+      const tronco = curva([
+        [x - largura * 0.9, Y(chao)], [x - largura * 0.55, Y(chao + alturaTronco * 0.5)], [x - largura * 0.4, Y(chao + alturaTronco)],
+        [x + largura * 0.4, Y(chao + alturaTronco)], [x + largura * 0.55, Y(chao + alturaTronco * 0.5)], [x + largura * 0.9, Y(chao)]
+      ]);
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = cores.contorno;
+      ctx.stroke(tronco);
+      ctx.fillStyle = '#c9772f';
+      ctx.fill(tronco);
+      dentro(ctx, tronco, () => {
+        ctx.fillStyle = '#9c5421';
+        ctx.fillRect(x + largura * 0.1, Y(chao + alturaTronco), largura, alturaTronco);
+      });
+      copaRedonda(ctx, x, Y(chao + alturaTronco + raio * 0.55), raio, paleta);
+    }
+
+    // Pinheiro de fundo em andares; `contorno` falso para os mais distantes.
+    function pinheiroFundo(ctx, x, chao, altura, largura, cor, sombra, contorno) {
+      const andares = 4;
+      const formas = [];
+      for (let i = 0; i < andares; i++) {
+        const base = chao + altura * 0.12 + i * altura * 0.2;
+        const topo = base + altura * (0.42 - i * 0.02);
+        const meia = largura / 2 * (1 - i * 0.2);
+        const pontos = [[x, Y(topo)]];
+        const dentes = 5;
+        pontos.push([x - meia * 0.55, Y(base + (topo - base) * 0.35)]);
+        for (let d = 0; d <= dentes; d++) {
+          const t = d / dentes;
+          pontos.push([x - meia + t * meia * 2, Y(base - (d % 2 === 0 ? altura * 0.03 : -altura * 0.01))]);
+        }
+        pontos.push([x + meia * 0.55, Y(base + (topo - base) * 0.35)]);
+        formas.push(curva(pontos));
+      }
+      ctx.fillStyle = sombra;
+      ctx.fillRect(x - largura * 0.04, Y(chao + altura * 0.2), largura * 0.08, altura * 0.2);
+      for (const forma of formas) {
+        if (contorno) {
+          ctx.lineWidth = 5;
+          ctx.strokeStyle = contorno;
+          ctx.lineJoin = 'round';
+          ctx.stroke(forma);
+        }
+        ctx.fillStyle = cor;
+        ctx.fill(forma);
+        dentro(ctx, forma, () => {
+          ctx.fillStyle = sombra;
+          ctx.fillRect(x + largura * 0.06, Y(chao + altura), largura, altura);
+        });
+      }
+    }
+
+    // Cordilheira: picos de lados retos e ponta arredondada, encosta direita na sombra,
+    // neve nos mais altos e uma nevoa clara no pe.
+    function montanhas(ctx, base, alturaMax, paleta, semente) {
+      const s = criarSorteio(semente);
+      const picos = [];
+      for (let x = -140 + s() * 80; x < arte.largura + 260; x += 190 + s() * 140) {
+        picos.push({ x, h: base + alturaMax * (0.55 + s() * 0.45) });
+      }
+      const pontos = [];
+      picos.forEach((pico, i) => {
+        if (i > 0) {
+          const anterior = picos[i - 1];
+          const vale = { x: (anterior.x + pico.x) / 2 + (s() - 0.5) * 50, h: base + alturaMax * (0.16 + s() * 0.2) };
+          pico.vale = vale;
+          anterior.valeDireita = vale;
+          pontos.push([vale.x, vale.h]);
+        }
+        pontos.push([pico.x, pico.h]);
+      });
+      const forma = new Path2D();
+      forma.moveTo(-300, Y(base - 400));
+      forma.lineTo(-300, Y(pontos[0][1]));
+      for (const [x, h] of pontos) forma.lineTo(x, Y(h));
+      forma.lineTo(arte.largura + 300, Y(pontos[pontos.length - 1][1]));
+      forma.lineTo(arte.largura + 300, Y(base - 400));
+      forma.closePath();
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = paleta.contorno;
+      ctx.stroke(forma);
+      ctx.fillStyle = paleta.cor;
+      ctx.fill(forma);
+      dentro(ctx, forma, () => {
+        for (const pico of picos) {
+          const direita = pico.valeDireita || { x: pico.x + 220, h: base };
+          const esquerda = pico.vale || { x: pico.x - 220, h: base };
+          ctx.fillStyle = paleta.sombra;
+          ctx.beginPath();
+          ctx.moveTo(pico.x, Y(pico.h));
+          ctx.lineTo(direita.x, Y(direita.h));
+          ctx.lineTo(direita.x + 30, Y(base - 400));
+          ctx.lineTo(pico.x + (direita.x - pico.x) * 0.12, Y(base - 400));
+          ctx.closePath();
+          ctx.fill();
+          // Sulcos descendo pela encosta iluminada.
+          ctx.strokeStyle = paleta.sombra;
+          ctx.lineWidth = 4;
+          for (let i = 1; i <= 2; i++) {
+            const t = i / 3;
+            const x0 = pico.x + (esquerda.x - pico.x) * t * 0.5;
+            const h0 = pico.h + (esquerda.h - pico.h) * t * 0.5;
+            ctx.beginPath();
+            ctx.moveTo(x0, Y(h0));
+            ctx.lineTo(x0 + 10 + s() * 20, Y(h0 - alturaMax * 0.25));
+            ctx.stroke();
+          }
+          if (paleta.neve && pico.h > base + alturaMax * 0.7) {
+            const limite = pico.h - (pico.h - base) * 0.3;
+            const noLado = (lado) => {
+              const t = (pico.h - limite) / (pico.h - lado.h);
+              return pico.x + (lado.x - pico.x) * t;
+            };
+            const xe = noLado(esquerda), xd = noLado(direita);
+            const neve = new Path2D();
+            neve.moveTo(pico.x, Y(pico.h) - 6);
+            neve.lineTo(xe, Y(limite));
+            const dentes = 6;
+            for (let d = 1; d < dentes; d++) {
+              const t = d / dentes;
+              neve.lineTo(xe + (xd - xe) * t, Y(limite + (d % 2 ? -(28 + s() * 26) : 12)));
+            }
+            neve.lineTo(xd, Y(limite));
+            neve.closePath();
+            ctx.fillStyle = paleta.neve;
+            ctx.fill(neve);
+            dentro(ctx, neve, () => {
+              ctx.fillStyle = paleta.neveSombra;
+              ctx.beginPath();
+              ctx.moveTo(pico.x + 2, Y(pico.h) - 10);
+              ctx.lineTo(xd + 30, Y(limite - 60));
+              ctx.lineTo(pico.x + (xd - pico.x) * 0.15, Y(limite - 60));
+              ctx.fill();
+            });
+          }
+        }
+        const nevoa = ctx.createLinearGradient(0, Y(base + alturaMax * 0.45), 0, Y(base));
+        nevoa.addColorStop(0, 'rgba(255,255,255,0)');
+        nevoa.addColorStop(1, paleta.nevoa);
+        ctx.fillStyle = nevoa;
+        ctx.fillRect(-300, Y(base + alturaMax * 0.45), arte.largura + 600, alturaMax * 0.45 + 400);
+      });
+    }
+
+    function pedra(ctx, x, chao, largura, altura) {
+      const pontos = [];
+      for (let i = 0; i < 9; i++) {
+        const a = Math.PI + i / 8 * Math.PI;
+        pontos.push([x + Math.cos(a) * largura / 2 * entre(0.85, 1.05), Y(chao + Math.max(0, -Math.sin(a)) * altura * entre(0.85, 1.05))]);
+      }
+      const forma = curva(pontos);
+      ctx.lineWidth = 6;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = cores.contorno;
+      ctx.stroke(forma);
+      ctx.fillStyle = cores.pedra;
+      ctx.fill(forma);
+      dentro(ctx, forma, () => {
+        ctx.fillStyle = cores.pedraEscura;
+        ctx.beginPath();
+        ctx.ellipse(x + largura * 0.25, Y(chao), largura * 0.45, altura * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = cores.pedraClara;
+        ctx.beginPath();
+        ctx.ellipse(x - largura * 0.18, Y(chao + altura * 0.72), largura * 0.22, altura * 0.16, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function arbusto(ctx, x, chao, largura, paleta) {
+      const circulos = [];
+      const n = Math.max(3, Math.round(largura / 60));
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1);
+        const r = largura / n * entre(0.75, 0.95) * (0.8 + Math.sin(t * Math.PI) * 0.45);
+        circulos.push([x - largura / 2 + t * largura, Y(chao + r * 0.8), r]);
+      }
+      const p = { base: cores.folha, sombra: cores.folhaEscura, luz: cores.folhaClara, brilho: cores.folhaBrilho, contorno: cores.folhaContorno, ...paleta };
+      formaComContorno(ctx, circulos, p.base, p.contorno, 5);
+      dentro(ctx, uniaoCirculos(circulos), () => {
+        ctx.fillStyle = p.sombra;
+        ctx.fillRect(x - largura, Y(chao + largura * 0.08), largura * 2, largura);
+        for (const [cx, cy, r] of circulos) {
+          ctx.fillStyle = p.luz;
+          ctx.beginPath();
+          ctx.arc(cx - r * 0.2, cy - r * 0.3, r * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = p.brilho;
+          ctx.beginPath();
+          ctx.ellipse(cx - r * 0.32, cy - r * 0.45, r * 0.18, r * 0.11, -0.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function flor(ctx, x, chao, cor, tamanho = 10) {
+      const y = Y(chao);
+      ctx.strokeStyle = '#2f6b2e';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x, y + tamanho * 2.2);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.fillStyle = cor;
+      ctx.strokeStyle = cores.contorno;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 5; i++) {
+        const a = i / 5 * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(a) * tamanho * 0.6, y + Math.sin(a) * tamanho * 0.6, tamanho * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ffd24a';
+      ctx.beginPath();
+      ctx.arc(x, y, tamanho * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function cogumelo(ctx, x, chao, tamanho, cor = '#d8392f') {
+      const y = Y(chao);
+      ctx.lineWidth = 5;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = cores.contorno;
+      const pe = curva([[x - tamanho * 0.22, y], [x - tamanho * 0.16, y - tamanho * 0.55], [x + tamanho * 0.16, y - tamanho * 0.55], [x + tamanho * 0.24, y]]);
+      ctx.stroke(pe);
+      ctx.fillStyle = '#fbeede';
+      ctx.fill(pe);
+      const chapeu = new Path2D();
+      chapeu.moveTo(x - tamanho * 0.62, y - tamanho * 0.5);
+      chapeu.bezierCurveTo(x - tamanho * 0.6, y - tamanho * 1.25, x + tamanho * 0.6, y - tamanho * 1.25, x + tamanho * 0.62, y - tamanho * 0.5);
+      chapeu.quadraticCurveTo(x, y - tamanho * 0.36, x - tamanho * 0.62, y - tamanho * 0.5);
+      chapeu.closePath();
+      ctx.stroke(chapeu);
+      ctx.fillStyle = cor;
+      ctx.fill(chapeu);
+      dentro(ctx, chapeu, () => {
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillRect(x + tamanho * 0.15, y - tamanho * 1.3, tamanho, tamanho);
+        ctx.fillStyle = '#fff6ea';
+        [[-0.3, -0.78, 0.12], [0.08, -0.95, 0.1], [0.36, -0.7, 0.09], [-0.05, -0.62, 0.07]].forEach(([dx, dy, r]) => {
+          ctx.beginPath();
+          ctx.arc(x + dx * tamanho, y + dy * tamanho, r * tamanho, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      });
+    }
+
+    function cachoeira(ctx, x, topo, base, largura) {
+      const s = criarSorteio(88);
+      paredao(ctx, x - largura / 2 - 70, base - 40, 150, topo - base + 80, s);
+      paredao(ctx, x + largura / 2 + 80, base - 40, 170, topo - base + 40, s);
+      // Agua caindo: beirada arredondada em cima, faixas claras e degrade.
+      const agua = new Path2D();
+      agua.moveTo(x - largura / 2, Y(base));
+      agua.lineTo(x - largura / 2, Y(topo - 10));
+      agua.quadraticCurveTo(x, Y(topo + 16), x + largura / 2, Y(topo - 10));
+      agua.lineTo(x + largura / 2, Y(base));
+      agua.closePath();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#3f7fa6';
+      ctx.stroke(agua);
+      const gradiente = ctx.createLinearGradient(0, Y(topo), 0, Y(base));
+      gradiente.addColorStop(0, '#bfe9fb');
+      gradiente.addColorStop(1, '#6cc0ea');
+      ctx.fillStyle = gradiente;
+      ctx.fill(agua);
+      dentro(ctx, agua, () => {
+        for (let i = 0; i < 7; i++) {
+          const xx = x - largura / 2 + (i + 0.5) / 7 * largura;
+          ctx.strokeStyle = i % 2 ? 'rgba(255,255,255,0.85)' : 'rgba(150,215,245,0.9)';
+          ctx.lineWidth = 3 + s() * 5;
+          ctx.beginPath();
+          ctx.moveTo(xx, Y(topo + 10));
+          ctx.lineTo(xx + (s() - 0.5) * 6, Y(base));
+          ctx.stroke();
+        }
+      });
+      // Lago com reflexos, espuma e nevoa no pe da queda.
+      const lago = new Path2D();
+      lago.ellipse(x + 10, Y(base - 26), largura * 2.2, 52, 0, 0, Math.PI * 2);
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#2f6f96';
+      ctx.stroke(lago);
+      ctx.fillStyle = '#5fb0e0';
+      ctx.fill(lago);
+      dentro(ctx, lago, () => {
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 4; i++) {
+          ctx.beginPath();
+          ctx.ellipse(x + 10 + (s() - 0.5) * largura * 2, Y(base - 20 - s() * 30), 26 + s() * 20, 4, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      });
+      comDesfoque(ctx, 14, () => {
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.beginPath();
+        ctx.ellipse(x, Y(base + 20), largura * 1.4, 40, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      const espuma = [];
+      for (let i = 0; i < 7; i++) espuma.push([x - largura * 0.8 + i / 6 * largura * 1.6, Y(base + 4 + s() * 16), 16 + s() * 14]);
+      formaComContorno(ctx, espuma, '#ffffff', '#9cc9e6', 4);
+    }
+
+    // Paredao de pedra arredondado, dividido em blocos, com musgo no alto.
+    function paredao(ctx, x, rBase, largura, altura, s) {
+      const pontos = [];
+      const passos = 7;
+      for (let i = 0; i <= passos; i++) pontos.push([x - largura / 2 + (s() - 0.5) * 24, Y(rBase + altura * i / passos)]);
+      pontos.push([x - largura * 0.2, Y(rBase + altura + 30)], [x + largura * 0.25, Y(rBase + altura + 20)]);
+      for (let i = passos; i >= 0; i--) pontos.push([x + largura / 2 + (s() - 0.5) * 24, Y(rBase + altura * i / passos)]);
+      const forma = curva(pontos);
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = cores.contorno;
+      ctx.stroke(forma);
+      const gradiente = ctx.createLinearGradient(x - largura / 2, 0, x + largura / 2, 0);
+      gradiente.addColorStop(0, '#b8aca0');
+      gradiente.addColorStop(1, '#857a72');
+      ctx.fillStyle = gradiente;
+      ctx.fill(forma);
+      dentro(ctx, forma, () => {
+        ctx.strokeStyle = 'rgba(70,55,48,0.75)';
+        ctx.lineWidth = 4;
+        for (let r = rBase + 60; r < rBase + altura; r += 70 + s() * 40) {
+          ctx.beginPath();
+          ctx.moveTo(x - largura, Y(r));
+          ctx.quadraticCurveTo(x, Y(r + 18 * (s() - 0.5)), x + largura, Y(r + 10));
+          ctx.stroke();
+          ctx.beginPath();
+          const xx = x + (s() - 0.5) * largura * 0.6;
+          ctx.moveTo(xx, Y(r));
+          ctx.lineTo(xx + 6, Y(r + 60));
+          ctx.stroke();
+          ctx.fillStyle = 'rgba(255,255,255,0.18)';
+          ctx.fillRect(x - largura, Y(r) - 10, largura * 2, 8);
+        }
+        const musgo = [];
+        for (let i = 0; i < 6; i++) musgo.push([x - largura / 2 + s() * largura, Y(rBase + altura + 10 - s() * 30), 18 + s() * 16]);
+        formaComContorno(ctx, musgo, '#6fae3e', '#2f5f24', 3);
+      });
+    }
+
+    // Raminho de pinheiro: cabinho com agulhas dos dois lados; o contorno e a primeira passada.
+    function raminho(ctx, x, y, angulo, comprimento) {
+      const agulhas = [];
+      const passos = 7;
+      const cx = Math.cos(angulo), cy = Math.sin(angulo);
+      for (let i = 0; i <= passos; i++) {
+        const t = i / passos;
+        const px = x + cx * comprimento * t * 0.82;
+        const py = y + cy * comprimento * t * 0.82;
+        const tamanho = comprimento * (0.44 - t * 0.2);
+        for (const lado of [-1, 1]) {
+          const a = angulo + lado * (1.0 - t * 0.4);
+          agulhas.push([px, py, px + Math.cos(a) * tamanho, py + Math.sin(a) * tamanho]);
+        }
+      }
+      agulhas.push([x + cx * comprimento * 0.8, y + cy * comprimento * 0.8, x + cx * comprimento, y + cy * comprimento]);
+      ctx.lineCap = 'round';
+      for (const [cor, largura] of [[cores.pinhoContorno, 10], [cores.pinho, 5.5]]) {
+        ctx.strokeStyle = cor;
+        ctx.lineWidth = largura;
+        ctx.beginPath();
+        for (const [x1, y1, x2, y2] of agulhas) {
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+        }
+        ctx.stroke();
+      }
+      // Brilho nas agulhas que apontam para cima.
+      ctx.strokeStyle = cores.pinhoBrilho;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      for (const [x1, y1, x2, y2] of agulhas) {
+        if (y2 >= y1) continue;
+        ctx.moveTo(x1 + (x2 - x1) * 0.35, y1 + (y2 - y1) * 0.35);
+        ctx.lineTo(x2, y2);
+      }
+      ctx.stroke();
+    }
+
+    // Formato de um andar do pinheiro: lados levemente curvos e a borda de baixo em cachos de agulhas.
+    function formaAndar(base, altura, meia) {
+      const topo = base + altura;
+      const e = eixo(topo);
+      const caida = altura * 0.2;
+      const beirada = (t) => Y(base - Math.pow(Math.abs(t - 0.5) * 2, 2) * caida);
+      const forma = new Path2D();
+      forma.moveTo(e, Y(topo));
+      forma.quadraticCurveTo(e - meia * 0.3, Y(base + altura * 0.3), e - meia, beirada(0));
+      const cachos = Math.max(5, Math.round(meia * 2 / 92));
+      for (let c = 0; c < cachos; c++) {
+        const t0 = c / cachos, t1 = (c + 1) / cachos;
+        const x0 = e - meia + t0 * meia * 2, x1 = e - meia + t1 * meia * 2;
+        const fundo = Math.max(beirada(t0), beirada(t1)) + altura * 0.16;
+        forma.quadraticCurveTo((x0 + x1) / 2, fundo, x1, beirada(t1));
+      }
+      forma.quadraticCurveTo(e + meia * 0.3, Y(base + altura * 0.3), e, Y(topo));
+      forma.closePath();
+      return { forma, e, topo, caida };
+    }
+
+    // Esquilinho sentado no galho segurando uma pinha; `lado` e para onde ele olha.
+    function esquilo(ctx, x, y, lado) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(lado, 1);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      const contorno = (forma, cor, largura = 5) => {
+        ctx.lineWidth = largura;
+        ctx.strokeStyle = cores.contorno;
+        ctx.stroke(forma);
+        ctx.fillStyle = cor;
+        ctx.fill(forma);
+      };
+      // Rabo fofo em S atras do corpo.
+      const rabo = [[-20, -18, 20], [-42, -38, 25], [-56, -66, 28], [-52, -98, 26], [-34, -122, 22], [-14, -126, 16]];
+      formaComContorno(ctx, rabo, '#b8652e', cores.contorno, 5);
+      dentro(ctx, uniaoCirculos(rabo), () => {
+        // Brilho macio acompanhando a curva do rabo.
+        comDesfoque(ctx, 6, () => {
+          ctx.lineWidth = 20;
+          ctx.strokeStyle = '#e8a466';
+          ctx.stroke(curva(rabo.map(([cx, cy]) => [cx - 9, cy - 4]), false));
+        });
+      });
+      // Pezinhos e corpo.
+      for (const px of [-8, 16]) {
+        const pe = new Path2D();
+        pe.ellipse(px, -4, 13, 7, 0, 0, Math.PI * 2);
+        contorno(pe, '#a95a28', 4);
+      }
+      const corpo = new Path2D();
+      corpo.ellipse(2, -40, 27, 35, 0, 0, Math.PI * 2);
+      contorno(corpo, '#c8733a');
+      dentro(ctx, corpo, () => {
+        ctx.fillStyle = '#f6dcb8';
+        ctx.beginPath();
+        ctx.ellipse(9, -34, 16, 23, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      // Cabeca com bochechas claras, orelhas com pontinha e carinha.
+      for (const [ox, oy] of [[-8, -108], [20, -108]]) {
+        const orelha = new Path2D();
+        orelha.moveTo(ox - 10, oy + 16);
+        orelha.quadraticCurveTo(ox - 4, oy - 10, ox + 2, oy - 14);
+        orelha.quadraticCurveTo(ox + 8, oy - 4, ox + 10, oy + 16);
+        orelha.closePath();
+        contorno(orelha, '#c8733a', 4);
+      }
+      const cabeca = new Path2D();
+      cabeca.ellipse(6, -84, 29, 26, 0, 0, Math.PI * 2);
+      contorno(cabeca, '#c8733a');
+      dentro(ctx, cabeca, () => {
+        ctx.fillStyle = '#f6dcb8';
+        ctx.beginPath();
+        ctx.ellipse(12, -72, 20, 13, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#e39c5c';
+        ctx.beginPath();
+        ctx.ellipse(-4, -96, 14, 8, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      for (const ox of [-2, 20]) {
+        ctx.fillStyle = '#2a140c';
+        ctx.beginPath();
+        ctx.ellipse(ox, -86, 5.5, 6.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(ox - 1.5, -88.5, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#f08a8a';
+      ctx.beginPath();
+      ctx.ellipse(10, -76, 4.5, 3.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = cores.contorno;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(10, -73);
+      ctx.quadraticCurveTo(6, -68, 3, -71);
+      ctx.moveTo(10, -73);
+      ctx.quadraticCurveTo(14, -68, 17, -71);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(240,120,120,0.45)';
+      for (const ox of [-10, 30]) {
+        ctx.beginPath();
+        ctx.ellipse(ox, -76, 6, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Pinha nas maozinhas.
+      pinha(ctx, 26, -46, 15);
+      for (const [px, py] of [[16, -46], [34, -50]]) {
+        const mao = new Path2D();
+        mao.ellipse(px, py, 7, 6, 0, 0, Math.PI * 2);
+        contorno(mao, '#c8733a', 3.5);
+      }
+      ctx.restore();
+    }
+
+    // ---------------------------------------------------------------- tronco
+    // Bordas e eixo do tronco levemente ondulados.
+    const ruidoBordaE = criarRuido(11, 260);
+    const ruidoBordaD = criarRuido(12, 260);
+    const ruidoEixo = criarRuido(13, 2600);
+    function eixo(r) {
+      return CX + ruidoEixo(r + 1000) * 10;
+    }
+    // Meia largura do tronco na altura r: afina devagar e alarga no pe, onde nascem as raizes.
+    function meiaLargura(r) {
+      const base = 168 - (r / 6500) * 22;
+      const pe = r < 560 ? Math.pow(1 - r / 560, 2.4) * 205 : 0;
+      return base + pe;
+    }
+
+    function bordaTronco(r, lado) {
+      const ruido = lado < 0 ? ruidoBordaE : ruidoBordaD;
+      return eixo(r) + lado * (meiaLargura(r) + ruido(r) * 4);
+    }
+
+    function caminhoTronco(rTopo) {
+      const pontos = [];
+      for (let r = 20; r <= rTopo; r += r < 600 ? 30 : 60) pontos.push([bordaTronco(r, -1), Y(r)]);
+      for (let r = rTopo; r >= 20; r -= r <= 600 ? 30 : 60) pontos.push([bordaTronco(r, 1), Y(r)]);
+      pontos.push([eixo(0) + 200, Y(-30)], [eixo(0) - 200, Y(-30)]);
+      return curva(pontos);
+    }
+
+    // Raizes: gomos claros que descem do pe ate o chao, com vales escuros entre eles.
+    function raizes(ctx) {
+      for (const pos of [-0.8, -0.42, 0.02, 0.44, 0.82]) {
+        const pontos = [];
+        const vale = [];
+        for (let r = 640; r >= 0; r -= 40) {
+          const t = 1 - r / 640;
+          const x = eixo(r) + pos * meiaLargura(r);
+          pontos.push([x, Y(r)]);
+          vale.push([x + 30 + t * 30, Y(r)]);
+        }
+        comDesfoque(ctx, 12, () => {
+          ctx.lineWidth = 50;
+          ctx.strokeStyle = pos < 0.3 ? 'rgba(255,210,145,0.6)' : 'rgba(255,190,120,0.35)';
+          ctx.stroke(curva(pontos, false));
+        });
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = 'rgba(120,52,16,0.85)';
+        ctx.stroke(curva(vale.slice(3), false));
+      }
+    }
+
+    function espiral(ctx, x, y, raio, esticar, voltas = 2.4) {
+      ctx.beginPath();
+      for (let a = 0; a <= voltas * Math.PI * 2; a += 0.12) {
+        const r = raio * (1 - a / (voltas * Math.PI * 2 + 0.6));
+        const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r * esticar;
+        if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    // Veios compridos, espirais e nos no estilo das arvores do menu.
+    function texturaTronco(ctx, rTopo) {
+      const s = criarSorteio(77);
+      const sorteio = (a, b) => a + (b - a) * s();
+      // Faixa de luz a esquerda e de sombra a direita, bem suaves.
+      comDesfoque(ctx, 22, () => {
+        for (let r = 0; r < rTopo; r += 200) {
+          const e = eixo(r), m = meiaLargura(r);
+          ctx.fillStyle = 'rgba(255,214,150,0.55)';
+          ctx.fillRect(e - m * 0.78, Y(r + 200), m * 0.34, 200);
+          ctx.fillStyle = 'rgba(150,70,20,0.45)';
+          ctx.fillRect(e + m * 0.5, Y(r + 200), m * 0.55, 200);
+        }
+      });
+      // Veios: linhas longas e onduladas, mais escuras que a madeira; algumas claras do lado da luz.
+      ctx.lineCap = 'round';
+      for (let i = 0; i < rTopo / 20; i++) {
+        const r0 = sorteio(-200, rTopo);
+        const comprimento = sorteio(220, 820);
+        const posicao = sorteio(-0.94, 0.94);
+        const fase = sorteio(0, 6), amplitude = sorteio(5, 15), onda = sorteio(70, 130);
+        const clara = posicao < -0.35 && s() < 0.45;
+        ctx.strokeStyle = clara ? 'rgba(255,212,150,0.6)' : `rgba(160,72,22,${sorteio(0.45, 0.72)})`;
+        ctx.lineWidth = sorteio(3, 7);
+        ctx.beginPath();
+        for (let r = r0; r <= r0 + comprimento; r += 18) {
+          const x = eixo(r) + posicao * meiaLargura(r) + Math.sin(r / onda + fase) * amplitude;
+          if (r === r0) ctx.moveTo(x, Y(r)); else ctx.lineTo(x, Y(r));
+        }
+        ctx.stroke();
+      }
+      // Olhinhos da madeira espalhados, como nos troncos de desenho animado.
+      for (let i = 0; i < 30; i++) {
+        const r = sorteio(560, rTopo - 200);
+        const x = eixo(r) + sorteio(-0.72, 0.72) * meiaLargura(r);
+        const tamanho = sorteio(9, 17);
+        ctx.strokeStyle = 'rgba(150,66,20,0.85)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.ellipse(x, Y(r), tamanho * 0.7, tamanho * 1.9, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(120,48,14,0.9)';
+        ctx.beginPath();
+        ctx.ellipse(x, Y(r), tamanho * 0.28, tamanho * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,214,160,0.7)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.ellipse(x - 3, Y(r), tamanho * 0.7, tamanho * 1.9, 0, 2.2, 4.0);
+        ctx.stroke();
+      }
+    }
+
+    function no(ctx, x, r, largura, altura) {
+      // No de madeira: olho escuro com aneis.
+      const y = Y(r);
+      ctx.fillStyle = '#c56a2a';
+      ctx.strokeStyle = cores.veio;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.ellipse(x, y, largura, altura, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.ellipse(x, y, largura * 0.65, altura * 0.65, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#7e3c16';
+      ctx.beginPath();
+      ctx.ellipse(x, y, largura * 0.3, altura * 0.32, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function espiralTronco(ctx, x, r, raio) {
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(150,66,20,0.9)';
+      ctx.lineWidth = 8;
+      espiral(ctx, x, Y(r), raio, 1.7);
+      ctx.strokeStyle = 'rgba(255,214,160,0.75)';
+      ctx.lineWidth = 3;
+      espiral(ctx, x - 6, Y(r) - 7, raio * 0.92, 1.7);
+      // Aneis de fora em volta do redemoinho.
+      ctx.strokeStyle = 'rgba(150,66,20,0.75)';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.ellipse(x, Y(r), raio * 1.35, raio * 1.35 * 1.7, 0, -2.6, 1.2);
+      ctx.stroke();
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.ellipse(x + 4, Y(r), raio * 1.75, raio * 1.75 * 1.7, 0, -2.1, 0.8);
+      ctx.stroke();
+    }
+
+    function musgo(ctx, x, r, largura) {
+      const circulos = [];
+      for (let i = 0; i < 6; i++) circulos.push([x + entre(-largura / 2, largura / 2), Y(r + entre(-largura * 0.2, largura * 0.2)), entre(largura * 0.12, largura * 0.22)]);
+      formaComContorno(ctx, circulos, '#6fae3e', '#2f5f24', 3);
+      dentro(ctx, uniaoCirculos(circulos), () => {
+        ctx.fillStyle = '#a8d45a';
+        for (const [cx, cy, rr] of circulos) {
+          ctx.beginPath();
+          ctx.arc(cx - rr * 0.25, cy - rr * 0.3, rr * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    // Orelha-de-pau: cogumelos em prateleira presos na casca, com aneis de crescimento.
+    function orelhaDePau(ctx, lado, r, quantidade) {
+      for (let i = 0; i < quantidade; i++) {
+        const rr = r + i * 60 - quantidade * 26;
+        const tamanho = 84 - i * 16;
+        const x = bordaTronco(rr, lado) - lado * tamanho * 0.4;
+        const y = Y(rr);
+        const forma = new Path2D();
+        forma.moveTo(x, y + 8);
+        forma.bezierCurveTo(x + lado * tamanho * 0.15, y - tamanho * 0.5, x + lado * tamanho * 1.05, y - tamanho * 0.42, x + lado * tamanho * 1.12, y + 2);
+        forma.quadraticCurveTo(x + lado * tamanho * 0.7, y + tamanho * 0.2, x, y + 8);
+        forma.closePath();
+        ctx.lineWidth = 5;
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = cores.contorno;
+        ctx.stroke(forma);
+        const gradiente = ctx.createLinearGradient(0, y - tamanho * 0.45, 0, y + tamanho * 0.2);
+        gradiente.addColorStop(0, '#f6cf86');
+        gradiente.addColorStop(1, '#c98a3e');
+        ctx.fillStyle = gradiente;
+        ctx.fill(forma);
+        dentro(ctx, forma, () => {
+          // Aneis paralelos a beirada e a parte de baixo mais escura.
+          ctx.lineWidth = 3;
+          for (const [k, cor] of [[0.25, 'rgba(255,240,200,0.9)'], [0.5, 'rgba(170,105,45,0.7)'], [0.75, 'rgba(170,105,45,0.55)']]) {
+            ctx.strokeStyle = cor;
+            ctx.beginPath();
+            ctx.moveTo(x, y + 8 - tamanho * 0.1);
+            ctx.bezierCurveTo(x + lado * tamanho * 0.15, y - tamanho * 0.5 * (1 - k), x + lado * tamanho * (1.05 - k * 0.3), y - tamanho * 0.42 * (1 - k), x + lado * tamanho * (1.12 - k * 0.35), y + 2);
+            ctx.stroke();
+          }
+          ctx.fillStyle = '#8f5a26';
+          ctx.beginPath();
+          ctx.moveTo(x, y + 14);
+          ctx.quadraticCurveTo(x + lado * tamanho * 0.7, y + tamanho * 0.12, x + lado * tamanho * 1.2, y + 2);
+          ctx.lineTo(x + lado * tamanho * 1.2, y + tamanho);
+          ctx.lineTo(x, y + tamanho);
+          ctx.fill();
+        });
+      }
+    }
+
+    function buraco(ctx, x, r, largura, altura) {
+      const y = Y(r);
+      ctx.fillStyle = '#9a4c1c';
+      ctx.beginPath();
+      ctx.ellipse(x, y, largura + 12, altura + 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = cores.contorno;
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      ctx.fillStyle = '#2a140c';
+      ctx.beginPath();
+      ctx.ellipse(x, y + 4, largura, altura, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function coruja(ctx, x, r) {
+      // Buraco no tronco com uma corujinha espiando.
+      buraco(ctx, x, r, 74, 92);
+      const y = Y(r) + 14;
+      const corpo = new Path2D();
+      corpo.ellipse(x, y + 30, 58, 62, 0, Math.PI, 0);
+      corpo.lineTo(x + 58, y + 70);
+      corpo.lineTo(x - 58, y + 70);
+      corpo.closePath();
+      ctx.save();
+      const boca = new Path2D();
+      boca.ellipse(x, Y(r) + 4, 74, 92, 0, 0, Math.PI * 2);
+      ctx.clip(boca);
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = cores.contorno;
+      ctx.fillStyle = '#9b7a5c';
+      ctx.fill(corpo);
+      ctx.stroke(corpo);
+      // Orelhinhas.
+      ctx.beginPath();
+      ctx.moveTo(x - 50, y - 18); ctx.lineTo(x - 38, y - 52); ctx.lineTo(x - 22, y - 26);
+      ctx.moveTo(x + 50, y - 18); ctx.lineTo(x + 38, y - 52); ctx.lineTo(x + 22, y - 26);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#e8d3b4';
+      ctx.beginPath();
+      ctx.ellipse(x, y + 40, 34, 30, 0, 0, Math.PI * 2);
+      ctx.fill();
+      for (const lado of [-1, 1]) {
+        ctx.fillStyle = '#fff4dc';
+        ctx.beginPath();
+        ctx.arc(x + lado * 22, y, 21, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#2a140c';
+        ctx.beginPath();
+        ctx.arc(x + lado * 20, y + 2, 11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(x + lado * 16, y - 3, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#f2a33a';
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y + 16); ctx.lineTo(x + 8, y + 16); ctx.lineTo(x, y + 30);
+      ctx.closePath();
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function coracaoEntalhado(ctx, x, r) {
+      // Coracao entalhado com uma patinha, lembranca da Casspet.
+      const y = Y(r);
+      const coracao = new Path2D();
+      coracao.moveTo(x, y + 52);
+      coracao.bezierCurveTo(x - 80, y + 4, x - 62, y - 58, x, y - 26);
+      coracao.bezierCurveTo(x + 62, y - 58, x + 80, y + 4, x, y + 52);
+      coracao.closePath();
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = '#9a4a1a';
+      ctx.stroke(coracao);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255,214,160,0.8)';
+      ctx.save();
+      ctx.translate(-3, -3);
+      ctx.stroke(coracao);
+      ctx.restore();
+      ctx.fillStyle = '#9a4a1a';
+      ctx.beginPath();
+      ctx.ellipse(x, y + 10, 16, 13, 0, 0, Math.PI * 2);
+      ctx.fill();
+      [[-19, -8], [-7, -19], [7, -19], [19, -8]].forEach(([dx, dy]) => {
+        ctx.beginPath();
+        ctx.ellipse(x + dx, y + dy, 6.5, 8, dx * 0.02, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    // `morador` pode ser 'ninho' ou 'esquilo'.
+    function galho(ctx, lado, r, comprimento, morador = null) {
+      const x0 = bordaTronco(r, lado) - lado * 70;
+      const y0 = Y(r);
+      // O galho sai do tronco, sobe um pouco e cai de leve na ponta.
+      const ponto = (t) => [x0 + lado * comprimento * t, y0 - comprimento * (0.34 * t - 0.14 * t * t)];
+      const grossura = (t) => 34 * (1 - t) + 8;
+      const fora = lado > 0 ? 0 : Math.PI;
+      const acima = fora - lado * 0.75, abaixo = fora + lado * 0.55;
+      // Raminhos de tras antes do galho.
+      [[0.45, acima, 0.75], [0.8, abaixo, 0.7]].forEach(([t, a, tam]) => {
+        const [x, y] = ponto(t);
+        raminho(ctx, x, y, a, comprimento * tam * 0.55);
+      });
+      const cima = [], baixo = [];
+      for (let i = 0; i <= 12; i++) {
+        const t = i / 12;
+        const [x, y] = ponto(t);
+        const g = grossura(t) / 2;
+        cima.push([x, y - g]);
+        baixo.unshift([x, y + g]);
+      }
+      const forma = curva([...cima, ...baixo]);
+      ctx.lineWidth = 7;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = cores.contorno;
+      ctx.stroke(forma);
+      ctx.fillStyle = '#c47a3a';
+      ctx.fill(forma);
+      dentro(ctx, forma, () => {
+        ctx.strokeStyle = '#8f4c1e';
+        ctx.lineWidth = 16;
+        ctx.stroke(curva(baixo, false));
+        ctx.strokeStyle = 'rgba(255,205,140,0.8)';
+        ctx.lineWidth = 5;
+        ctx.stroke(curva(cima.map(([x, y]) => [x, y + 7]), false));
+      });
+      // Raminhos da frente e o da ponta.
+      [[0.3, abaixo, 0.6], [0.62, acima, 0.8], [0.95, fora - lado * 0.15, 0.9]].forEach(([t, a, tam]) => {
+        const [x, y] = ponto(t);
+        raminho(ctx, x, y, a, comprimento * tam * 0.55);
+      });
+      if (morador === 'ninho') {
+        const [x, y] = ponto(0.64);
+        ninho(ctx, x, y - 14);
+      } else if (morador === 'esquilo') {
+        const [x, y] = ponto(0.72);
+        esquilo(ctx, x, y - grossura(0.72) / 2 + 3, -lado);
+      }
+    }
+
+    function tufoAgulhas(ctx, x, y, tamanho, lado) {
+      const agulhas = new Path2D();
+      const pontas = 13;
+      for (let i = 0; i <= pontas; i++) {
+        const a = Math.PI + (i / pontas) * Math.PI + (lado > 0 ? 0.2 : -0.2);
+        const r = i % 2 === 0 ? tamanho : tamanho * 0.45;
+        const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r * 0.75 + tamanho * 0.18;
+        if (i === 0) agulhas.moveTo(px, py); else agulhas.lineTo(px, py);
+      }
+      agulhas.quadraticCurveTo(x, y + tamanho * 0.55, x - tamanho, y + tamanho * 0.18);
+      agulhas.closePath();
+      ctx.lineWidth = 5;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = cores.pinhoContorno;
+      ctx.stroke(agulhas);
+      ctx.fillStyle = cores.pinho;
+      ctx.fill(agulhas);
+      dentro(ctx, agulhas, () => {
+        ctx.fillStyle = cores.pinhoClaro;
+        ctx.beginPath();
+        ctx.ellipse(x - tamanho * 0.2, y - tamanho * 0.3, tamanho * 0.6, tamanho * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function ninho(ctx, x, y) {
+      // Ovos azuis num ninho de gravetos.
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = cores.contorno;
+      for (const [dx, cor] of [[-20, '#8fd3f0'], [4, '#a9ddf5'], [24, '#8fd3f0']]) {
+        ctx.fillStyle = cor;
+        ctx.beginPath();
+        ctx.ellipse(x + dx, y - 16, 14, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      const cesto = new Path2D();
+      cesto.moveTo(x - 60, y - 12);
+      cesto.quadraticCurveTo(x, y + 60, x + 60, y - 12);
+      cesto.quadraticCurveTo(x, y + 8, x - 60, y - 12);
+      ctx.lineWidth = 5;
+      ctx.stroke(cesto);
+      ctx.fillStyle = '#a8702f';
+      ctx.fill(cesto);
+      ctx.strokeStyle = '#6e4118';
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 7; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x - 56 + i * 16, y - 8 + entre(-4, 4));
+        ctx.quadraticCurveTo(x - 40 + i * 12, y + 20, x - 20 + i * 8, y + 16 + entre(-4, 4));
+        ctx.stroke();
+      }
+    }
+
+    // Trepadeira subindo pelo lado esquerdo do pe do tronco.
+    function hera(ctx, rInicio, rFim) {
+      const ruido = criarRuido(31, 300);
+      const pontos = [];
+      for (let r = rInicio; r <= rFim; r += 30) {
+        pontos.push([eixo(r) - meiaLargura(r) * 0.62 + Math.sin(r / 240) * meiaLargura(r) * 0.2 + ruido(r) * 10, Y(r)]);
+      }
+      ctx.lineWidth = 9;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = cores.folhaContorno;
+      ctx.stroke(curva(pontos, false));
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#5b8a2e';
+      ctx.stroke(curva(pontos, false));
+      for (let i = 1; i < pontos.length; i += 2) {
+        const [x, y] = pontos[i];
+        const lado = i % 4 === 1 ? -1 : 1;
+        folhaHera(ctx, x + lado * 20, y - 6, 20 + (1 - i / pontos.length) * 10, lado * 0.6);
+      }
+    }
+
+    function folhaHera(ctx, x, y, tamanho, angulo) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angulo);
+      const folha = new Path2D();
+      folha.moveTo(0, tamanho);
+      folha.bezierCurveTo(-tamanho * 1.2, tamanho * 0.2, -tamanho * 0.7, -tamanho * 0.9, 0, -tamanho * 0.45);
+      folha.bezierCurveTo(tamanho * 0.7, -tamanho * 0.9, tamanho * 1.2, tamanho * 0.2, 0, tamanho);
+      folha.closePath();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = cores.folhaContorno;
+      ctx.stroke(folha);
+      ctx.fillStyle = cores.folha;
+      ctx.fill(folha);
+      dentro(ctx, folha, () => {
+        ctx.fillStyle = cores.folhaClara;
+        ctx.beginPath();
+        ctx.ellipse(-tamanho * 0.3, -tamanho * 0.1, tamanho * 0.45, tamanho * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.strokeStyle = 'rgba(30,70,30,0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, tamanho * 0.8);
+      ctx.lineTo(0, -tamanho * 0.3);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function portinha(ctx, x, chao) {
+      // Portinha de fada entre as raizes, com janelinha e lanterna.
+      const largura = 116, altura = 150;
+      const y = Y(chao);
+      const porta = new Path2D();
+      porta.moveTo(x - largura / 2, y);
+      porta.lineTo(x - largura / 2, y - altura + largura / 2);
+      porta.arc(x, y - altura + largura / 2, largura / 2, Math.PI, 0);
+      porta.lineTo(x + largura / 2, y);
+      porta.closePath();
+      ctx.fillStyle = '#6b3a1a';
+      ctx.save();
+      ctx.translate(0, -2);
+      ctx.scale(1, 1);
+      ctx.beginPath();
+      ctx.ellipse(x, y - altura + largura / 2 + 20, largura / 2 + 22, altura / 2 + 30, 0, Math.PI, 0);
+      ctx.lineTo(x + largura / 2 + 22, y);
+      ctx.lineTo(x - largura / 2 - 22, y);
+      ctx.fill();
+      ctx.restore();
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = cores.contorno;
+      ctx.stroke(porta);
+      ctx.fillStyle = '#4f8f3c';
+      ctx.fill(porta);
+      dentro(ctx, porta, () => {
+        ctx.strokeStyle = '#2f6b2e';
+        ctx.lineWidth = 4;
+        for (let i = 1; i < 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(x - largura / 2 + i * largura / 4, y - altura);
+          ctx.lineTo(x - largura / 2 + i * largura / 4, y);
+          ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(x + largura * 0.15, y - altura, largura, altura);
+      });
+      // Janelinha redonda com luz quente.
+      ctx.fillStyle = '#ffd86b';
+      ctx.beginPath();
+      ctx.arc(x, y - altura + 44, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x - 18, y - altura + 44); ctx.lineTo(x + 18, y - altura + 44);
+      ctx.moveTo(x, y - altura + 26); ctx.lineTo(x, y - altura + 62);
+      ctx.stroke();
+      ctx.fillStyle = '#f2c14e';
+      ctx.beginPath();
+      ctx.arc(x + largura * 0.3, y - altura * 0.42, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      // Lanterna pendurada ao lado.
+      const lx = x + largura / 2 + 34, ly = y - altura * 0.72;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(lx, ly - 36); ctx.lineTo(lx, ly - 18);
+      ctx.stroke();
+      comDesfoque(ctx, 10, () => {
+        ctx.fillStyle = 'rgba(255,214,110,0.7)';
+        ctx.beginPath();
+        ctx.arc(lx, ly, 30, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.fillStyle = '#ffe08a';
+      ctx.strokeStyle = cores.contorno;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.roundRect(lx - 13, ly - 18, 26, 34, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#3b1f14';
+      ctx.fillRect(lx - 16, ly - 22, 32, 7);
+      ctx.fillRect(lx - 16, ly + 14, 32, 6);
+    }
+
+    // Granulados de madeira que o guaxinim deixou cair ao pe da arvore.
+    function granulados(ctx, x, chao, quantidade) {
+      for (let i = 0; i < quantidade; i++) {
+        const gx = x + entre(-70, 70), gy = Y(chao + entre(0, 26));
+        ctx.save();
+        ctx.translate(gx, gy);
+        ctx.rotate(entre(-0.9, 0.9));
+        ctx.fillStyle = '#d9b184';
+        ctx.strokeStyle = '#6e3f1e';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(-15, -8, 30, 16, 7);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#b8895c';
+        ctx.beginPath();
+        ctx.ellipse(11, 0, 4, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function tronco(ctx) {
+      const rTopo = 6900;
+      const forma = caminhoTronco(rTopo);
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = cores.contorno;
+      ctx.stroke(forma);
+      const gradiente = ctx.createLinearGradient(CX - 330, 0, CX + 330, 0);
+      gradiente.addColorStop(0, cores.troncoLuz);
+      gradiente.addColorStop(0.3, cores.troncoClaro);
+      gradiente.addColorStop(0.55, cores.troncoBase);
+      gradiente.addColorStop(0.78, cores.troncoSombra);
+      gradiente.addColorStop(1, cores.troncoEscuro);
+      ctx.fillStyle = gradiente;
+      ctx.fill(forma);
+      dentro(ctx, forma, () => {
+        texturaTronco(ctx, rTopo);
+        // Espirais e nos, alternando os lados.
+        [[1500, -0.45, 46], [3050, 0.4, 42], [4250, -0.35, 40], [5500, 0.45, 38], [760, 0.42, 44]].forEach(([r, pos, raio]) => {
+          espiralTronco(ctx, eixo(r) + pos * meiaLargura(r), r, raio);
+        });
+        [[2150, 0.5, 22, 30], [3650, -0.55, 18, 26], [5950, -0.2, 20, 28], [1150, -0.55, 18, 26]].forEach(([r, pos, l, a]) => {
+          no(ctx, eixo(r) + pos * meiaLargura(r), r, l, a);
+        });
+        raizes(ctx);
+        musgo(ctx, eixo(420) - meiaLargura(420) * 0.55, 420, 150);
+        musgo(ctx, eixo(900) - meiaLargura(900) * 0.75, 900, 110);
+        musgo(ctx, eixo(2700) + meiaLargura(2700) * 0.7, 2700, 90);
+        coracaoEntalhado(ctx, eixo(2560) - meiaLargura(2560) * 0.35, 2560);
+        // Buraquinhos de pica-pau.
+        [[3920, 0.45], [3990, 0.52], [4050, 0.4]].forEach(([r, pos]) => buraco(ctx, eixo(r) + pos * meiaLargura(r), r, 12, 14));
+        coruja(ctx, eixo(4800) + meiaLargura(4800) * 0.25, 4800);
+        // Contorno interno escuro na borda direita, para dar volume.
+        comDesfoque(ctx, 10, () => {
+          ctx.lineWidth = 36;
+          ctx.strokeStyle = 'rgba(110,50,15,0.35)';
+          ctx.stroke(forma);
+        });
+      });
+      orelhaDePau(ctx, 1, 1080, 3);
+      orelhaDePau(ctx, -1, 3350, 2);
+      orelhaDePau(ctx, 1, 5820, 3);
+      hera(ctx, 160, 1100);
+    }
+
+    function andarPinheiro(ctx, base, altura, meia, k, total) {
+      const { forma, e, topo, caida } = formaAndar(base, altura, meia);
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = cores.pinhoContorno;
+      ctx.stroke(forma);
+      const gradiente = ctx.createLinearGradient(0, Y(topo), 0, Y(base - caida));
+      gradiente.addColorStop(0, cores.pinhoClaro);
+      gradiente.addColorStop(0.5, cores.pinho);
+      gradiente.addColorStop(1, cores.pinhoEscuro);
+      ctx.fillStyle = gradiente;
+      ctx.fill(forma);
+      const s = criarSorteio(500 + k);
+      dentro(ctx, forma, () => {
+        // Lado direito na sombra e luz na beirada esquerda.
+        comDesfoque(ctx, 24, () => {
+          ctx.fillStyle = 'rgba(12,45,28,0.5)';
+          ctx.beginPath();
+          ctx.moveTo(e + 10, Y(topo));
+          ctx.lineTo(e + meia * 1.3, Y(base - caida * 2));
+          ctx.lineTo(e + meia * 0.15, Y(base - caida * 2));
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(190,240,140,0.55)';
+          ctx.lineWidth = 40;
+          ctx.beginPath();
+          ctx.moveTo(e, Y(topo));
+          ctx.quadraticCurveTo(e - meia * 0.3, Y(base + altura * 0.3), e - meia, Y(base - caida));
+          ctx.stroke();
+        });
+        // Cachos de agulhas: leques de tracos para baixo e para fora.
+        ctx.lineCap = 'round';
+        const quantidade = Math.round(meia * altura / 1500);
+        for (let i = 0; i < quantidade; i++) {
+          const r = base - caida * 0.5 + s() * (altura + caida * 0.3);
+          const alcance = meia * Math.max(0.05, (topo - r) / altura) + 20;
+          const x = e + (s() * 2 - 1) * alcance;
+          const lado = x < e ? -1 : 1;
+          const luz = lado < 0 ? 1 - (x - (e - alcance)) / alcance * 0.6 : 0.2;
+          const tamanho = 20 + s() * 18;
+          ctx.strokeStyle = lado < 0 && s() < 0.8
+            ? `rgba(170,228,120,${0.35 + luz * 0.35})`
+            : `rgba(15,60,35,${0.35 + s() * 0.25})`;
+          ctx.lineWidth = 3.5;
+          ctx.beginPath();
+          for (const abre of [-0.5, 0, 0.5]) {
+            const a = Math.PI / 2 - lado * (0.55 + abre * 0.6);
+            ctx.moveTo(x, Y(r));
+            ctx.lineTo(x + Math.cos(a) * tamanho, Y(r) + Math.sin(a) * tamanho);
+          }
+          ctx.stroke();
+        }
+        // Neve nos andares mais altos: la em cima faz frio.
+        if (k >= total - 3) {
+          const nivel = k - (total - 3);
+          const limite = topo - altura * (0.32 + nivel * 0.12);
+          const neve = new Path2D();
+          neve.moveTo(e - meia * 1.4, Y(topo + 60));
+          neve.lineTo(e + meia * 1.4, Y(topo + 60));
+          const gotas = 9;
+          for (let g = gotas; g >= 0; g--) {
+            const t = g / gotas;
+            const x = e - meia * 1.4 + t * meia * 2.8;
+            neve.quadraticCurveTo(x + meia * 0.155, Y(limite - 34 - s() * 30), x, Y(limite));
+          }
+          neve.closePath();
+          ctx.save();
+          ctx.clip(neve);
+          ctx.fillStyle = '#f7fbff';
+          ctx.fillRect(e - meia * 1.5, Y(topo + 80), meia * 3, altura * 1.4);
+          ctx.fillStyle = '#cfe0f2';
+          ctx.fillRect(e + 6, Y(topo + 80), meia * 1.5, altura * 1.4);
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.ellipse(e - meia * 0.25, Y(topo - altura * 0.1), meia * 0.08, altura * 0.12, 0.4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      });
+      return { forma, e, base, meia, caida };
+    }
+
+    function pinha(ctx, x, y, tamanho) {
+      const forma = new Path2D();
+      forma.ellipse(x, y, tamanho * 0.55, tamanho, 0, 0, Math.PI * 2);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = cores.contorno;
+      ctx.fillStyle = '#9a5a26';
+      ctx.fill(forma);
+      ctx.stroke(forma);
+      dentro(ctx, forma, () => {
+        ctx.strokeStyle = '#6a3a16';
+        ctx.lineWidth = 3;
+        for (let i = -3; i <= 3; i++) {
+          ctx.beginPath();
+          ctx.moveTo(x - tamanho, y + i * tamanho * 0.3);
+          ctx.quadraticCurveTo(x, y + i * tamanho * 0.3 + tamanho * 0.3, x + tamanho, y + i * tamanho * 0.3);
+          ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(255,200,140,0.45)';
+        ctx.beginPath();
+        ctx.ellipse(x - tamanho * 0.2, y - tamanho * 0.3, tamanho * 0.18, tamanho * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function copa(ctx) {
+      const total = 8;
+      const andares = [];
+      for (let k = 0; k < total; k++) {
+        andares.push({ base: 6260 + k * 345, altura: 600 - k * 36, meia: 610 - k * 67 });
+      }
+      // De baixo para cima: cada andar cobre o topo do anterior e deixa sombra nele.
+      const desenhados = [];
+      andares.forEach(({ base, altura, meia }, k) => {
+        if (k > 0) {
+          const anterior = desenhados[k - 1];
+          const { forma } = formaAndar(base, altura, meia);
+          dentro(ctx, anterior.forma, () => {
+            comDesfoque(ctx, 16, () => {
+              ctx.save();
+              ctx.translate(8, 34);
+              ctx.fillStyle = 'rgba(8,38,22,0.6)';
+              ctx.fill(forma);
+              ctx.restore();
+            });
+          });
+        }
+        desenhados.push(andarPinheiro(ctx, base, altura, meia, k, total));
+      });
+      [[0, -0.55], [1, 0.62], [2, -0.4], [3, 0.5], [4, -0.3]].forEach(([k, pos]) => {
+        const { e, base, meia, caida } = desenhados[k];
+        const r = base - Math.pow(Math.abs(pos), 2) * caida - 36;
+        pinha(ctx, e + pos * meia, Y(r) + 10, 30);
+      });
+      const topo = andares[total - 1].base + andares[total - 1].altura;
+      const e = eixo(topo);
+      const ponta = new Path2D();
+      ponta.moveTo(e, Y(arte.topoCopa));
+      ponta.quadraticCurveTo(e - 10, Y(topo - 20), e - 26, Y(topo - 70));
+      ponta.lineTo(e + 26, Y(topo - 70));
+      ponta.quadraticCurveTo(e + 10, Y(topo - 20), e, Y(arte.topoCopa));
+      ponta.closePath();
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = cores.pinhoContorno;
+      ctx.stroke(ponta);
+      ctx.fillStyle = '#f7fbff';
+      ctx.fill(ponta);
+    }
+
+    // ---------------------------------------------------------------- cenario completo
+    function desenharCenario() {
+      sorte = criarSorteio(2026);
+      const tela = document.createElement('canvas');
+      tela.width = arte.largura;
+      tela.height = arte.altura;
+      const ctx = tela.getContext('2d', { willReadFrequently: true });
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+
+      // Fundo distante: montanhas, com neve nos picos mais altos.
+      montanhas(ctx, 560, 760, { cor: '#b3cbe6', sombra: '#9bb6d7', contorno: '#8aa6c8', neve: '#f6f9ff', neveSombra: '#d3e1f2', nevoa: 'rgba(225,238,250,0.95)' }, 3);
+      montanhas(ctx, 400, 470, { cor: '#8fb0cf', sombra: '#7a99bd', contorno: '#6f8db0', nevoa: 'rgba(205,228,246,0.9)' }, 9);
+      // Floresta distante azulada, sem contorno.
+      for (let x = -40; x < arte.largura + 60; x += entre(38, 62)) {
+        pinheiroFundo(ctx, x, entre(300, 360), entre(260, 420), entre(90, 130), '#6f9f95', '#5c8b84', null);
+      }
+      // Nuvens baixas atras de tudo.
+      nuvem(ctx, 160, Y(1650), 300, 120);
+      nuvem(ctx, 880, Y(1450), 260, 110);
+      // Cachoeira entre paredoes a direita.
+      cachoeira(ctx, 800, 880, 250, 64);
+      // Floresta do meio, mais verde e com contorno.
+      for (let x = -30; x < arte.largura + 60; x += entre(55, 85)) {
+        if (x > 700 && x < 900) continue;
+        pinheiroFundo(ctx, x, entre(170, 230), entre(380, 560), entre(120, 170), '#3f8455', '#2f6a45', '#1f4a33');
+      }
+      // Arvores grandes de copa redonda emoldurando os lados.
+      arvoreRedonda(ctx, 90, 120, 560, 250, {});
+      arvoreRedonda(ctx, 1000, 120, 480, 230, { base: '#5aa53f', luz: '#9ad04a' });
+      arvoreRedonda(ctx, 260, 140, 300, 160, { base: '#4a9340', luz: '#86c24a' });
+
+      // Galhos com raminhos de pinheiro (e um ninho); ficam atras do tronco, como se saissem dele.
+      galho(ctx, 1, 1950, 190);
+      galho(ctx, -1, 2350, 210, 'ninho');
+      galho(ctx, 1, 3150, 200, 'esquilo');
+      galho(ctx, -1, 3750, 200);
+      galho(ctx, 1, 4380, 190);
+      galho(ctx, -1, 5300, 180);
+      galho(ctx, 1, 5650, 170);
+      // Arvore gigante.
+      tronco(ctx);
+
+      // Chao na frente do pe da arvore.
+      arbusto(ctx, 160, 90, 280, {});
+      arbusto(ctx, 870, 90, 300, { base: '#56a23f' });
+      arbusto(ctx, 640, 80, 150, { base: '#4a9340' });
+      pedra(ctx, 300, 95, 120, 70);
+      pedra(ctx, 760, 100, 90, 56);
+      pedra(ctx, 40, 110, 110, 64);
+      cogumelo(ctx, 238, 120, 64);
+      cogumelo(ctx, 272, 112, 44, '#e2483a');
+      cogumelo(ctx, 700, 118, 54);
+      [[120, '#ffffff'], [205, '#ffd1e8'], [590, '#ffffff'], [812, '#fff0a0'], [940, '#ffd1e8'], [350, '#fff0a0']].forEach(([x, cor]) => flor(ctx, x, 150, cor, 11));
+      portinha(ctx, CX - 150, 130);
+      granulados(ctx, CX + 150, 100, 6);
+
+      // Nuvens pelo caminho, alternando os lados; algumas passam na frente do tronco.
+      const nuvens = [
+        [210, 2050, 280, 110], [840, 2350, 320, 120], [150, 2800, 240, 100], [880, 3100, 260, 105],
+        [260, 3500, 200, 84], [800, 3900, 230, 92], [180, 4450, 180, 76], [860, 4900, 200, 80],
+        [230, 5400, 170, 70], [820, 5750, 190, 74]
+      ];
+      nuvens.forEach(([x, r, l, a]) => nuvem(ctx, x, Y(r), l, a));
+
+      // Copa do pinheiro, com um colar de nuvens na base.
+      [[190, 6200, 360, 140], [860, 6230, 380, 150], [520, 6120, 300, 110]].forEach(([x, r, l, a]) => nuvem(ctx, x, Y(r), l, a));
+      copa(ctx);
+      [[120, 6080, 320, 130], [930, 6100, 330, 130], [340, 6010, 260, 100], [700, 6030, 280, 105]].forEach(([x, r, l, a]) => nuvem(ctx, x, Y(r), l, a));
+      return tela;
+    }
+
+    // Recorta a arte em faixas com margem de filtragem e devolve os WebP prontos.
+    async function gerarFaixas(aoAvancar = () => {}) {
+      aoAvancar('Desenhando o cenario...');
+      await new Promise((resolver) => setTimeout(resolver, 30));
+      const tela = desenharCenario();
+      const quantidade = Math.ceil(arte.altura / arte.alturaFaixa);
+      const faixas = [];
+      for (let i = 0; i < quantidade; i++) {
+        aoAvancar(`Recortando faixa ${i + 1} de ${quantidade}...`);
+        const inicio = i * arte.alturaFaixa;
+        const alturaTrecho = Math.min(arte.alturaFaixa, arte.altura - inicio) + arte.margem * 2;
+        const faixa = document.createElement('canvas');
+        faixa.width = arte.largura;
+        faixa.height = alturaTrecho;
+        faixa.getContext('2d').drawImage(tela, 0, -(inicio - arte.margem));
+        const blob = await new Promise((resolver) => faixa.toBlob(resolver, 'image/webp', 0.9));
+        faixas.push({ nome: `cenario-${i}.webp`, blob });
+      }
+      return faixas;
+    }
+
+    document.getElementById('gerar').addEventListener('click', async () => {
+      const estado = document.getElementById('estado');
+      const lista = document.getElementById('faixas');
+      lista.innerHTML = '';
+      try {
+        const faixas = await gerarFaixas((texto) => { estado.textContent = texto; });
+        estado.textContent = 'Pronto! Clique em cada faixa para baixar e salve em assets/cenario-novo/.';
+        for (const faixa of faixas) {
+          const url = URL.createObjectURL(faixa.blob);
+          lista.insertAdjacentHTML('beforeend', `<figure><a href="${url}" download="${faixa.nome}">
+            <img src="${url}" alt="${faixa.nome}"></a>
+            <figcaption>${faixa.nome}<br>${Math.round(faixa.blob.size / 1024)} KB</figcaption></figure>`);
+        }
+      } catch (erro) {
+        estado.textContent = 'Erro: ' + erro.message;
+      }
+    });
+  </script>
+</body>
+</html>
