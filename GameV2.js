@@ -1666,25 +1666,31 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
     // Quadro, legenda e dica foram posicionados para 640 de altura; em telas
     // mais altas descem juntos para ficar no meio.
     const meio = (config.height - 640) / 2;
-    // Maior que a tela: o tremor do quadro do roubo nao deixa aparecer o jogo por tras.
-    const fundo = fixo(cena.add.rectangle(180, config.height / 2, 360 + 80, config.height + 80, 0x1f130d), 40)
+    // Fundo: a floresta do menu escurecida, como na loja. Arte e sombra passam da tela para
+    // o tremor do quadro do roubo nao deixar aparecer o jogo por tras.
+    const escalaArte = Math.max(config.width / 941, config.height / 1672) * 1.12;
+    const arte = fixo(cena.add.image(180, config.height / 2, 'introducao', '__BASE').setScale(escalaArte), 40)
         .setAlpha(0);
-    const pontos = fixo(cena.add.graphics(), 41);
+    const fundo = fixo(cena.add.rectangle(180, config.height / 2, 360 + 80, config.height + 80, 0x1a0e08, 0.86), 40)
+        .setAlpha(0);
+    // Progresso: um granulado por quadro numa tirinha de madeira; o atual fica maior e aceso.
+    const tirinha = fixo(cena.add.image(166, 26, texturaMadeira(cena, 132, 30, { raio: 12, escurecer: 0.2 }))
+        .setScale(0.5), 41);
+    const pontos = quadrosHistoria.map((quadro, i) =>
+        fixo(cena.add.image(166 - (quadrosHistoria.length - 1) * 9 + i * 18, 26, 'moeda'), 41));
     const toque = fixo(cena.add.zone(180, config.height / 2, 360, config.height), 41).setInteractive();
-    const pular = fixo(cena.add.text(348, 26, 'PULAR  »', {
-        resolution: 4, fontFamily: 'Arial', fontSize: '13px', fontStyle: 'bold',
-        color: corTexto, backgroundColor: '#382017', padding: { x: 12, y: 7 }
-    }), 42).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
+    const pular = fixo(criarBotaoMadeira(cena, 300, 26, 92, 34, 'PULAR »', () => encerrar(), { tamanho: 13 }), 42);
     const fundoLegenda = fixo(cena.add.graphics(), 41);
     const legenda = fixo(cena.add.text(180, 0, '', {
         resolution: 4, fontFamily: 'Arial', fontSize: '16px', fontStyle: 'bold',
         color: '#3b2418', align: 'center', wordWrap: { width: 288 }, lineSpacing: 4
     }), 42).setOrigin(0.5).setFixedSize(288, 0);
     const dica = fixo(cena.add.text(180, 604 + meio, 'Toque para continuar  ›', {
-        resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#f4ddc9'
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', fontStyle: 'bold', color: '#fff4d6',
+        stroke: '#1a0e08', strokeThickness: 4
     }), 41).setOrigin(0.5);
-    const objetos = [fundo, pontos, toque, pular, fundoLegenda, legenda, dica];
-    cena.tweens.add({ targets: fundo, alpha: 1, duration: 250 });
+    const objetos = [arte, fundo, tirinha, ...pontos, toque, pular, fundoLegenda, legenda, dica];
+    cena.tweens.add({ targets: [arte, fundo], alpha: 1, duration: 250 });
     cena.tweens.add({
         targets: dica, alpha: 0.5, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
     });
@@ -1695,11 +1701,16 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
     let terminou = false;
 
     const desenharPontos = () => {
-        pontos.clear();
-        const inicioX = 180 - (quadrosHistoria.length - 1) * 8;
-        quadrosHistoria.forEach((quadro, i) => {
-            pontos.fillStyle(i === indice ? 0xffd24a : 0xffe1a6, i === indice ? 1 : 0.35)
-                .fillCircle(inicioX + i * 16, 26, i === indice ? 5 : 3.5);
+        pontos.forEach((ponto, i) => {
+            cena.tweens.killTweensOf(ponto);
+            ponto.setAlpha(i <= indice ? 1 : 0.35).setAngle(-15);
+            if (i === indice) {
+                // O granulado do quadro atual cresce com um pulinho.
+                ponto.setScale(12 / 808);
+                cena.tweens.add({ targets: ponto, scale: 22 / 808, duration: 320, ease: 'Back.easeOut' });
+            } else {
+                ponto.setScale(13 / 808);
+            }
         });
     };
     const completarLegenda = () => {
@@ -1819,10 +1830,6 @@ function mostrarHistoria(cena, aoTerminar, textoFinal) {
         else if (['Space', 'Enter', 'ArrowRight'].includes(evento.code)) avancar();
     };
     toque.on('pointerdown', avancar);
-    pular.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
-        evento.stopPropagation();
-        encerrar();
-    });
     cena.input.keyboard.on('keydown', tecla);
     cena.events.once('shutdown', () => cena.input.keyboard.off('keydown', tecla));
     mostrarQuadro(0);
