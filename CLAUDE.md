@@ -40,6 +40,11 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   (previa jogavel e/ou Pull Request) e so vai para a `main` depois que o usuario aprovar.
 - Quando o usuario pedir para "subir no git para jogar" algo ja aprovado, e merge + push na `main`.
 - A cada mudanca no jogo, troque o `?v=` do `GameV2.js` no `index.html`, para o celular nao usar script em cache.
+- **Instalar como app (PWA):** `manifest.webmanifest` (tela cheia, retrato, icones em `assets/icone/`, feitos da
+  arte do menu com o gato parado) e `sw.js`, que guarda os arquivos para abrir sem internet. O `sw.js` busca
+  sempre a rede primeiro e so usa o guardado quando ela falha, entao atualizacoes chegam na hora. Botao
+  "Instalar" no alto do menu: no Android abre o convite do navegador (`window.pedidoInstalar`); no iPhone
+  explica Compartilhar > Adicionar a Tela de Inicio. Some quando o jogo ja esta aberto como app.
 
 ## Como rodar e validar
 

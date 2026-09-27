@@ -970,6 +970,42 @@ function create(data = {}) {
         });
     });
     itensInicio.push(botaoMissoes);
+    // Instalar como app: no Android usa o convite do navegador; no iPhone explica o caminho.
+    // Some quando o jogo ja esta aberto como app.
+    const comoApp = window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches ||
+        window.navigator.standalone === true;
+    const noIphone = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (!comoApp && (window.pedidoInstalar || noIphone)) {
+        const iconeInstalar = this.add.graphics();
+        desenharIconeInstalar(iconeInstalar);
+        const botaoInstalar = this.add.container(38, 44, [
+            this.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 24),
+            this.add.image(0, 0, texturaMadeira(this, 52, 52, { raio: 24 })).setScale(1 / escalaMadeira),
+            iconeInstalar,
+            this.add.text(0, 36, 'Instalar', {
+                resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold', color: '#fff4d6',
+                stroke: '#2a1410', strokeThickness: 4
+            }).setOrigin(0.5)
+        ]).setSize(56, 56).setInteractive({ useHandCursor: true });
+        botaoInstalar.on('pointerdown', () => {
+            if (this.avisoInicio) return;
+            som.iniciar();
+            const pedido = window.pedidoInstalar;
+            if (pedido) {
+                som.clique();
+                window.pedidoInstalar = null;
+                pedido.prompt();
+                pedido.userChoice.then((escolha) => {
+                    if (escolha.outcome === 'accepted' && botaoInstalar.active) botaoInstalar.setVisible(false);
+                }).catch(() => {});
+                return;
+            }
+            mostrarAvisoInicio('INSTALAR O JOGO\n\nNo iPhone, abra este link no Safari, toque em Compartilhar ' +
+                '(o quadrado com a seta para cima) e depois em "Adicionar à Tela de Início".\n\n' +
+                'O Granulando vira um app e abre em tela cheia, até sem internet.');
+        });
+        itensInicio.push(botaoInstalar);
+    }
     // Folhas caindo por cima da arte deixam o menu vivo.
     const folhasInicio = criarFolhas(this, 0, 700);
     const borboletasMenu = criarBorboletasMenu(this, yArte);
@@ -1783,6 +1819,15 @@ function criarBotaoHud(cena, x, desenharIcone, acao) {
     });
     desenhar();
     return { botao, desenhar };
+}
+
+// Celular com uma seta para baixo, para o botao de instalar.
+function desenharIconeInstalar(g) {
+    g.fillStyle(0xfff4d6, 1).lineStyle(2.5, 0x4d2710, 1)
+        .fillRoundedRect(-8, -13, 16, 26, 3).strokeRoundedRect(-8, -13, 16, 26, 3);
+    g.fillStyle(0x4d2710, 1).fillRect(-2, 9, 4, 1.5);
+    g.lineStyle(3.2, 0x3f8a4c, 1).lineBetween(0, -8, 0, 4);
+    g.fillStyle(0x3f8a4c, 1).fillTriangle(-5.5, 1, 5.5, 1, 0, 7.5);
 }
 
 // Pergaminho com lista e um visto, para o botao das missoes.
