@@ -706,6 +706,10 @@ function create(data = {}) {
     // Os troncos sao criados antes do guaxinim; nao aproveita o da partida anterior.
     this.guaxinim = null;
     this.espaco = null;
+    // O ceu e criado antes das folhas; sem isso ele religaria as folhas da partida anterior,
+    // ja destruidas (o jogo travava no MENU ou no JOGAR DE NOVO depois de perder no espaco).
+    this.folhasJogo = null;
+    this.faixa = null;
     this.passaros = [];
     this.esperaPassaro = 2500;
     this.vidaFundo = { esperaBorboleta: 2500, esperaBando: 6000, esperaVagalume: 0 };
@@ -2854,7 +2858,7 @@ function atualizarEspaco(cena, delta, espaco, soltar) {
     const segundos = delta / 1000;
     // Folhas caindo nao combinam com o espaco.
     const folhas = cena.folhasJogo;
-    if (folhas && espaco > 0.5 === folhas.emitting) {
+    if (folhas && folhas.active && espaco > 0.5 === folhas.emitting) {
         if (folhas.emitting) folhas.stop();
         else folhas.start();
     }
