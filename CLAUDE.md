@@ -104,6 +104,9 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   brilho no letreiro e no INICIAR, faz estrelinhas e escurece a placa tocada. Borboletas voam pelo menu.
 - Placar (`criarHud`): troncos numa etiqueta de madeira com icone de tronco cortado, granulados numa placa
   no meio (o granulado pego voa ate ela, `voarParaPlacar`) e pausa/som em botoes redondos de madeira.
+- Musica, efeitos e vibracao ligam e desligam separados (`criarOpcoesSom`, `som.opcoes`, `chaveOpcoes`), na pausa
+  e em CONFIGURACOES; o botao de som do placar continua desligando tudo. A vibracao so aparece onde o aparelho
+  vibra (no iPhone nao) e vale mesmo com o som desligado.
 - Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, COMPARTILHAR, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
 - Botoes dentro de paineis fixos precisam de `setScrollFactor(0)` no proprio botao, senao o toque segue a camera.
 - `scene.restart()` sem dados repete os do ultimo reinicio; `voltarAoMenu` passa `{ reiniciar: false }`.

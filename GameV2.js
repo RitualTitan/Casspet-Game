@@ -121,6 +121,8 @@ const superficieChao = 104 / 229;
 const folgaAbaixoGato = 340;
 const chaveRecorde = 'granulando.recorde';
 const chaveMudo = 'granulando.mudo';
+// Musica, efeitos e vibracao ligam e desligam separados (na pausa e em CONFIGURACOES).
+const chaveOpcoes = 'granulando.opcoes';
 // Cofrinho de granulados e itens da loja, salvos so neste aparelho.
 const chaveLoja = 'granulando.loja';
 // Missoes do dia: 3 sorteadas pela data (iguais para todo mundo no mesmo dia). "partida" vale o
@@ -348,6 +350,7 @@ const som = {
     ctx: null,
     saida: null,
     mudo: lerArmazenado(chaveMudo, false) === true,
+    opcoes: { musica: true, efeitos: true, vibracao: true, ...lerArmazenado(chaveOpcoes, {}) },
     // O navegador so libera audio depois de um toque ou tecla.
     iniciar() {
         if (!this.ctx) {
@@ -368,7 +371,7 @@ const som = {
         }
     },
     tom(frequencia, duracao, { tipo = 'square', volume = 0.2, ate = 0, atraso = 0 } = {}) {
-        if (!this.ctx || this.mudo) return;
+        if (!this.ctx || this.mudo || !this.opcoes.efeitos) return;
         const inicio = this.ctx.currentTime + atraso;
         const oscilador = this.ctx.createOscillator();
         const ganho = this.ctx.createGain();
@@ -383,7 +386,7 @@ const som = {
         oscilador.stop(inicio + duracao + 0.02);
     },
     ruido(duracao, { volume = 0.2, frequencia = 1000, atraso = 0 } = {}) {
-        if (!this.ctx || this.mudo) return;
+        if (!this.ctx || this.mudo || !this.opcoes.efeitos) return;
         const inicio = this.ctx.currentTime + atraso;
         const amostras = Math.ceil(this.ctx.sampleRate * duracao);
         const buffer = this.ctx.createBuffer(1, amostras, this.ctx.sampleRate);
@@ -400,8 +403,14 @@ const som = {
         fonte.connect(filtro).connect(ganho).connect(this.saida);
         fonte.start(inicio);
     },
+    // A vibracao tem a sua propria opcao: vale mesmo com o som desligado.
     vibrar(ms) {
-        if (!this.mudo && navigator.vibrate) navigator.vibrate(ms);
+        if (this.opcoes.vibracao && navigator.vibrate) navigator.vibrate(ms);
+    },
+    alternarOpcao(chave) {
+        this.opcoes[chave] = !this.opcoes[chave];
+        salvarArmazenado(chaveOpcoes, this.opcoes);
+        if (chave === 'vibracao') this.vibrar(40);
     },
     clique() {
         this.tom(660, 0.06, { tipo: 'sine', volume: 0.12 });
@@ -579,7 +588,7 @@ const musica = {
         // Depois de a aba ficar em segundo plano, nao despeja as notas atrasadas de uma vez.
         if (this.proximoTempo < ctx.currentTime - 0.05) this.proximoTempo = ctx.currentTime + 0.05;
         while (this.proximoTempo < ctx.currentTime + 0.15) {
-            if (!som.mudo) this.tocarPasso(this.passo, this.proximoTempo);
+            if (!som.mudo && som.opcoes.musica) this.tocarPasso(this.passo, this.proximoTempo);
             this.proximoTempo += 30 / this.bpm;
             this.passo = (this.passo + 1) % trilha.melodia.length;
         }
@@ -978,9 +987,11 @@ function create(data = {}) {
         if (this.avisoInicio) return;
         som.clique();
         const centro = config.height / 2;
-        const fundo = this.add.rectangle(180, centro, 336, 330, corMadeiraEscura)
+        // As configuracoes tambem mostram as opcoes de som, entao a caixa cresce.
+        const alto = comHistoria ? 150 : 0;
+        const fundo = this.add.rectangle(180, centro, 336, 330 + alto, corMadeiraEscura)
             .setStrokeStyle(2, 0xffe1a6);
-        const mensagem = this.add.text(180, centro - 48, texto, {
+        const mensagem = this.add.text(180, centro - 48 - alto / 2 - (comHistoria ? 10 : 0), texto, {
             resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: corTexto,
             align: 'center', wordWrap: { width: 300 }, lineSpacing: 6
         }).setOrigin(0.5);
@@ -988,9 +999,10 @@ function create(data = {}) {
             resolution: 4, fontFamily: 'Arial', fontSize: '17px', fontStyle: 'bold',
             color: '#ffffff', backgroundColor: '#634128', padding: { x: 20, y: 12 }
         };
-        const fechar = this.add.text(comHistoria ? 250 : 180, centro + 108, 'VOLTAR', estiloBotao)
+        const fechar = this.add.text(comHistoria ? 250 : 180, centro + 108 + alto / 2, 'VOLTAR', estiloBotao)
             .setOrigin(0.5).setInteractive({ useHandCursor: true });
         const itens = [fundo, mensagem, fechar];
+        if (comHistoria) itens.push(...criarOpcoesSom(this, centro + 10));
         const fecharAviso = () => {
             som.clique();
             this.avisoInicio.destroy();
@@ -998,7 +1010,7 @@ function create(data = {}) {
             botoesMenu.forEach((botao) => botao.setInteractive({ useHandCursor: true }));
         };
         if (comHistoria) {
-            const historia = this.add.text(112, centro + 108, 'HISTÓRIA',
+            const historia = this.add.text(112, centro + 108 + alto / 2, 'HISTÓRIA',
                 { ...estiloBotao, backgroundColor: '#8a5a2b' })
                 .setOrigin(0.5).setInteractive({ useHandCursor: true });
             historia.on('pointerup', () => {
@@ -1864,22 +1876,48 @@ function alternarPausa(cena, pausar = !cena.pausado) {
     cena.tweens.pauseAll();
     musica.parar();
     const sombra = cena.add.rectangle(180, config.height / 2, 360, config.height, 0x160d08, 0.72);
-    const titulo = cena.add.text(180, config.height / 2 - 30, 'PAUSADO', {
+    const centro = config.height / 2;
+    const titulo = cena.add.text(180, centro - 160, 'PAUSADO', {
         resolution: 4, fontFamily: 'Arial', fontSize: '34px', fontStyle: 'bold',
         color: corTexto, stroke: '#1a0e08', strokeThickness: 6
     }).setOrigin(0.5);
-    const dica = cena.add.text(180, config.height / 2 + 25,
+    const dica = cena.add.text(180, centro - 118,
         'Toque na tela para continuar', {
         resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: '#f4ddc9',
         align: 'center', lineSpacing: 4
     }).setOrigin(0.5);
-    const continuar = criarBotaoMadeira(cena, 180, config.height / 2 + 90, 200, 50, 'CONTINUAR',
+    const opcoes = criarOpcoesSom(cena, centro - 60);
+    const continuar = criarBotaoMadeira(cena, 180, centro + 100, 200, 50, 'CONTINUAR',
         () => alternarPausa(cena, false));
-    const menu = criarBotaoMadeira(cena, 180, config.height / 2 + 152, 200, 50, 'MENU',
+    const menu = criarBotaoMadeira(cena, 180, centro + 162, 200, 50, 'MENU',
         () => voltarAoMenu(cena), { cor: 0xd9c2a8 });
     // Fica abaixo dos botoes, para o som continuar acessivel na pausa.
-    cena.telaPausa = cena.add.container(0, 0, [sombra, titulo, dica, continuar, menu])
+    cena.telaPausa = cena.add.container(0, 0, [sombra, titulo, dica, ...opcoes, continuar, menu])
         .setScrollFactor(0).setDepth(11);
+}
+
+// Botoes de liga e desliga da musica, dos efeitos e da vibracao (esta so onde o aparelho vibra).
+function criarOpcoesSom(cena, y) {
+    const nomes = { musica: ['MÚSICA', 'LIGADA', 'DESLIGADA'], efeitos: ['EFEITOS', 'LIGADOS', 'DESLIGADOS'] };
+    if (navigator.vibrate) nomes.vibracao = ['VIBRAÇÃO', 'LIGADA', 'DESLIGADA'];
+    return Object.keys(nomes).map((chave, i) => {
+        const [nome, ligada, desligada] = nomes[chave];
+        const pintar = () => {
+            const ligado = som.opcoes[chave];
+            botao.rotulo.setText(`${nome}: ${ligado ? ligada : desligada}`);
+            botao.list[0].setTint(ligado ? 0xffffff : 0x8f8378);
+        };
+        const botao = criarBotaoMadeira(cena, 180, y + i * 46, 236, 38, '', () => {
+            som.alternarOpcao(chave);
+            pintar();
+            if (chave === 'musica' && cena.iniciado && !cena.pausado && !cena.morreu) {
+                if (som.opcoes.musica) musica.tocar(false);
+                else musica.parar();
+            }
+        }, { tamanho: 14 });
+        pintar();
+        return botao;
+    });
 }
 
 // Faixa curta no meio da tela para eventos da partida.
