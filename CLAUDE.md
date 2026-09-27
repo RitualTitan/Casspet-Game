@@ -103,9 +103,12 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   com uma bicada ou quando o gato pousa num tronco novo deixando para tras o granulado de um tronco ja pisado
   (os pulados pela mola ou pelo super pulo nao contam). Etiqueta embaixo da placa de granulados.
 - **Troncos especiais** (nunca rachados): **mola** (`fx_mola`, `pularNaMola`, `impulsoMola`) a partir de
-  `troncoMola`, a cada 12 a 20; **balanco** pendurado em dois cipos (`desenharCipos`, movimento `tipo: 'balanco'`)
-  a partir de `troncoBalanco`, a cada 14 a 22. O cipo sobe reto ate passar do alto da tela (o usuario viu ele
-  terminar no meio do caminho ao subir).
+  `troncoMola`, a cada 12 a 20; **balanco** a partir de `troncoBalanco`, a cada 14 a 22 (`montarBalanco`,
+  movimento `tipo: 'balanco'`). O usuario recusou os cipos (terminavam no meio do caminho e nao combinaram com o
+  jogo); em teste ha tres estilos em `estiloBalanco`: **corda** (duas cordas como as da placa do menu, presas num
+  galhinho com tufo de folhas logo acima), **galho** (afunda e quica como trampolim) e **gangorra** (inclina
+  para o lado do pouso, sobre um apoio). Galho e gangorra mexem uma copia da imagem (`plataforma.visual`) e
+  deixam o corpo do pulo reto.
 
 - **Primeira partida guiada:** na primeira partida do aparelho uma mao (indicador, nunca o dedo do meio no centro
   da palma) arrasta de um lado para o outro na metade de baixo com "Arraste o dedo aqui embaixo" e some

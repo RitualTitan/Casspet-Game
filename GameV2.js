@@ -100,6 +100,9 @@ const granuladosSusto = 5;
 // Interruptores: os poderes e o balanco de cipo ficam desligados no jogo publicado ate o usuario decidir.
 const ativarPoderes = false;
 const ativarBalanco = false;
+// Estilo do tronco que balanca, ainda em teste: 'corda' (pendurado por cordas num galhinho de folhas, como a
+// placa do menu), 'galho' (afunda e quica como trampolim) ou 'gangorra' (inclina para o lado em que o gato pousa).
+let estiloBalanco = 'corda';
 // Poderes em bolhas sobre alguns troncos: o primeiro perto de troncoPoderes, depois a cada 22 a 34.
 const troncoPoderes = 12;
 const poderes = {
@@ -110,7 +113,7 @@ const poderes = {
 const raioIma = 150;
 // Granulados pegos em sequencia, sem deixar nenhum para tras, valem x2 e depois x3.
 const niveisCombo = [{ seguidos: 10, vale: 3 }, { seguidos: 5, vale: 2 }];
-// Troncos especiais: a mola joga o gato bem alto; o balanco fica pendurado em cipos.
+// Troncos especiais: a mola joga o gato bem alto; o balanco (em teste) balanca de um dos jeitos de estiloBalanco.
 const troncoMola = 30;
 const troncoBalanco = 45;
 const impulsoMola = 580;
@@ -2809,17 +2812,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     const noEspaco = cena.ceu && cena.ceu.fase >= faseEspaco;
     const amplitude = noEspaco ? 55 : 40;
     if (especial === 'balanco') {
-        // Pendurado em dois cipos: vai e volta num arco, sempre na horizontal.
-        const margemMovimento = plataforma.displayWidth / 2 + 12 + 45;
-        plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento, config.width - margemMovimento);
-        plataforma.body.updateFromGameObject();
-        plataforma.movimento = {
-            tipo: 'balanco', centro: plataforma.x, yBase: plataforma.y, comprimento: 260,
-            fase: Phaser.Math.FloatBetween(0, Math.PI * 2), sentido: 1, amplitude: 45, velocidade: 1.8
-        };
-        plataforma.cipos = cena.add.graphics().setDepth(-0.5);
-        plataforma.once('destroy', () => plataforma.cipos.destroy());
-        desenharCipos(plataforma);
+        montarBalanco(cena, plataforma);
     } else if (!chao && (numero % 3 === 0 || (noEspaco && numero % 3 === 1))) {
         const margemMovimento = plataforma.displayWidth / 2 + 12 + amplitude;
         plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento,
@@ -2854,33 +2847,115 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     }
 }
 
-// Dois cipos descem dos galhos la de cima ate as pontas do tronco do balanco.
-function desenharCipos(plataforma) {
+function montarBalanco(cena, plataforma, estilo = estiloBalanco) {
+    const fase = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    if (estilo === 'corda') {
+        // Pendurado por duas cordas: vai e volta num arco curto, sempre na horizontal.
+        const margem = plataforma.displayWidth / 2 + 12 + 34;
+        plataforma.x = Phaser.Math.Clamp(plataforma.x, margem, config.width - margem);
+        plataforma.movimento = {
+            tipo: 'balanco', estilo, centro: plataforma.x, yBase: plataforma.y, comprimento: 118,
+            fase, sentido: 1, amplitude: 34, velocidade: 2.1, acompanharY: true
+        };
+        plataforma.cordas = cena.add.graphics().setDepth(-0.5);
+        plataforma.folhagem = cena.add.graphics().setDepth(-0.4);
+        desenharFolhagem(plataforma.folhagem, plataforma.x, plataforma.y - 118, plataforma.displayWidth * 0.34);
+    } else {
+        // Fica no lugar: a imagem visivel afunda ou inclina e o corpo do pulo continua reto.
+        plataforma.movimento = {
+            tipo: 'balanco', estilo, centro: plataforma.x, yBase: plataforma.y, fase, amplitude: 0,
+            velocidade: 1, desde: 10, lado: 1, acompanharY: estilo === 'galho'
+        };
+        plataforma.visual = cena.add.image(plataforma.x, plataforma.y, plataforma.texture.key).setDepth(plataforma.depth);
+        plataforma.setAlpha(0);
+        if (estilo === 'gangorra') plataforma.apoio = cena.add.graphics().setDepth(-0.1);
+    }
+    plataforma.body.updateFromGameObject();
+    plataforma.once('destroy', () => [plataforma.cordas, plataforma.folhagem, plataforma.visual, plataforma.apoio]
+        .forEach((objeto) => objeto && objeto.destroy()));
+    atualizarBalanco(plataforma, 0);
+}
+
+// Galhinho com um tufo de folhas onde as cordas ficam amarradas (enfeite, nao da para pisar).
+function desenharFolhagem(g, x, y, afastamento) {
+    g.clear();
+    g.lineStyle(7, 0x2a1512, 1).lineBetween(x - afastamento - 10, y + 2, x + afastamento + 10, y - 2);
+    g.lineStyle(4, 0x7a4a2a, 1).lineBetween(x - afastamento - 10, y + 2, x + afastamento + 10, y - 2);
+    const folhas = [[-1.25, -6, 26, 16], [-0.6, -12, 30, 18], [0, -9, 34, 20], [0.65, -13, 30, 18], [1.25, -5, 26, 16],
+        [-0.95, 3, 22, 13], [0.95, 2, 22, 13]];
+    folhas.forEach(([fx, fy, l, a]) => g.fillStyle(0x1f3414, 1).fillEllipse(x + fx * afastamento, y + fy, l + 5, a + 5));
+    folhas.forEach(([fx, fy, l, a], i) => g.fillStyle(i % 2 ? 0x5ea832 : 0x7cc242, 1).fillEllipse(x + fx * afastamento, y + fy, l, a));
+    folhas.forEach(([fx, fy, l]) => g.fillStyle(0xb8e05a, 0.8).fillEllipse(x + fx * afastamento - l * 0.15, y + fy - 3, l * 0.35, 4));
+}
+
+// Duas cordas trancadas, como as da placa do menu, das pontas do tronco ate o galhinho.
+function desenharCordas(plataforma) {
     const movimento = plataforma.movimento;
-    const g = plataforma.cipos;
+    const g = plataforma.cordas;
     const afastamento = plataforma.displayWidth * 0.34;
-    const topo = movimento.yBase - movimento.comprimento;
+    const topo = movimento.yBase - movimento.comprimento + 2;
     g.clear();
     [-1, 1].forEach((lado) => {
         const baixoX = plataforma.x + lado * afastamento;
-        const baixoY = plataforma.y - 4;
+        const baixoY = plataforma.y - 6;
         const cimaX = movimento.centro + lado * afastamento;
-        g.lineStyle(5, 0x1f3414, 1).lineBetween(baixoX, baixoY, cimaX, topo);
-        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(baixoX, baixoY, cimaX, topo);
-        // Folhinhas ao longo do cipo.
-        for (let i = 1; i <= 3; i++) {
-            const t = i / 4;
-            const fx = Phaser.Math.Linear(baixoX, cimaX, t);
-            const fy = Phaser.Math.Linear(baixoY, topo, t);
-            const virada = i % 2 ? 1 : -1;
-            g.fillStyle(0x1f3414, 1).fillEllipse(fx + virada * 5, fy, 11, 6);
-            g.fillStyle(0x7cc242, 1).fillEllipse(fx + virada * 5, fy, 8, 4);
+        g.lineStyle(5.5, 0x4d2710, 1).lineBetween(baixoX, baixoY, cimaX, topo);
+        g.lineStyle(3, 0xd9b27a, 1).lineBetween(baixoX, baixoY, cimaX, topo);
+        // Marcas da tranca ao longo da corda.
+        const passos = Math.floor(Math.hypot(cimaX - baixoX, topo - baixoY) / 7);
+        g.lineStyle(1.3, 0x8a5a35, 1);
+        for (let i = 1; i < passos; i++) {
+            const t = i / passos;
+            const x = Phaser.Math.Linear(baixoX, cimaX, t);
+            const y = Phaser.Math.Linear(baixoY, topo, t);
+            g.lineBetween(x - 1.5, y + 1.5, x + 1.5, y - 1.5);
         }
-        // O cipo continua reto ate passar do alto da tela, nunca termina no meio do caminho.
-        const alto = Math.min(topo, plataforma.scene.cameras.main.scrollY - 20);
-        g.lineStyle(5, 0x1f3414, 1).lineBetween(cimaX, topo, cimaX, alto);
-        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(cimaX, topo, cimaX, alto);
+        g.fillStyle(0x4d2710, 1).fillCircle(baixoX, baixoY, 4).fillStyle(0xd9b27a, 1).fillCircle(baixoX, baixoY, 2.5);
     });
+}
+
+function atualizarBalanco(plataforma, delta) {
+    const movimento = plataforma.movimento;
+    const cena = plataforma.scene;
+    const segundos = delta / 1000 * cena.velocidadeJogo;
+    movimento.fase += segundos * movimento.velocidade;
+    if (movimento.estilo === 'corda') {
+        const angulo = Math.asin(movimento.amplitude / movimento.comprimento) * Math.sin(movimento.fase);
+        plataforma.x = movimento.centro + Math.sin(angulo) * movimento.comprimento;
+        plataforma.y = movimento.yBase - movimento.comprimento * (1 - Math.cos(angulo));
+        plataforma.body.updateFromGameObject();
+        desenharCordas(plataforma);
+        return;
+    }
+    // Depois do pouso, uma oscilacao que vai morrendo; parado, so um balanco leve.
+    movimento.desde += segundos;
+    const amortecido = Math.exp(-movimento.desde * 3.5);
+    let angulo;
+    if (movimento.estilo === 'galho') {
+        const desvio = 15 * amortecido * Math.cos(movimento.desde * 15) + Math.sin(movimento.fase * 2) * 1.5;
+        plataforma.y = movimento.yBase + desvio;
+        plataforma.body.updateFromGameObject();
+        angulo = desvio * 0.3 * movimento.lado;
+    } else {
+        angulo = movimento.lado * 13 * amortecido * Math.cos(movimento.desde * 7) + Math.sin(movimento.fase * 1.5) * 2.5;
+        const apoio = plataforma.apoio.clear();
+        const topo = plataforma.y + 10;
+        apoio.fillStyle(0x2a1512, 1).fillTriangle(plataforma.x - 13, topo + 22, plataforma.x + 13, topo + 22, plataforma.x, topo - 3);
+        apoio.fillStyle(0x7a4a2a, 1).fillTriangle(plataforma.x - 9, topo + 19, plataforma.x + 9, topo + 19, plataforma.x, topo + 2);
+    }
+    plataforma.visual.setPosition(plataforma.x, plataforma.y)
+        .setDisplaySize(plataforma.displayWidth, plataforma.displayHeight).setAngle(angulo);
+}
+
+// O gato pousou: a corda da um tranco para baixo; galho e gangorra reagem pelo lado do pouso.
+function reagirBalanco(cena, plataforma) {
+    const movimento = plataforma.movimento;
+    if (movimento.estilo === 'corda') {
+        cena.tweens.add({ targets: movimento, yBase: movimento.yBase + 9, duration: 110, yoyo: true, ease: 'Quad.easeOut' });
+        return;
+    }
+    movimento.desde = 0;
+    movimento.lado = cena.caixa.x >= plataforma.x ? 1 : -1;
 }
 
 function criarMoeda(cena, plataforma, dourada = false) {
@@ -2995,7 +3070,7 @@ function atualizarMoedas(cena, delta) {
         if (moeda.plataforma.active) {
             moeda.x = moeda.plataforma.x;
             // O balanco sobe um pouco nas pontas do arco; o granulado vai junto.
-            if (moeda.plataforma.movimento && moeda.plataforma.movimento.tipo === 'balanco') {
+            if (moeda.plataforma.movimento && moeda.plataforma.movimento.acompanharY) {
                 moeda.yBase = moeda.plataforma.y - 60;
             }
         }
@@ -3013,19 +3088,14 @@ function atualizarPlataformasMoveis(cena, delta) {
         if (plataforma.mola) plataforma.mola.x = plataforma.x;
         const movimento = plataforma.movimento;
         if (!movimento) continue;
+        if (movimento.tipo === 'balanco') {
+            atualizarBalanco(plataforma, delta);
+            continue;
+        }
         movimento.fase += delta / 1000 * movimento.velocidade * cena.velocidadeJogo;
         const margem = plataforma.displayWidth / 2 + 12;
         const amplitude = Math.max(0, Math.min(movimento.amplitude,
             movimento.centro - margem, config.width - margem - movimento.centro));
-        if (movimento.tipo === 'balanco') {
-            // Pendulo: anda no arco dos cipos e sobe um pouquinho nas pontas.
-            const angulo = Math.asin(amplitude / movimento.comprimento) * Math.sin(movimento.fase);
-            plataforma.x = movimento.centro + Math.sin(angulo) * movimento.comprimento;
-            plataforma.y = movimento.yBase - movimento.comprimento * (1 - Math.cos(angulo));
-            plataforma.body.updateFromGameObject();
-            desenharCipos(plataforma);
-            continue;
-        }
         plataforma.x = movimento.centro + Math.sin(movimento.fase) * amplitude * movimento.sentido;
         // O corpo estatico acompanha a imagem para manter o salto no lugar certo.
         plataforma.body.updateFromGameObject();
@@ -4399,11 +4469,7 @@ function pular(caixa, plataforma) {
     if (plataforma.fragil) {
         quebrarTronco(cena, plataforma);
     } else if (plataforma.movimento && plataforma.movimento.tipo === 'balanco') {
-        // O balanco afunda um pouco mais com o peso e ganha embalo.
-        cena.tweens.add({
-            targets: plataforma.movimento, yBase: plataforma.movimento.yBase + 9, duration: 110,
-            yoyo: true, ease: 'Quad.easeOut'
-        });
+        reagirBalanco(cena, plataforma);
     } else if (plataforma.numero > 0) {
         // O tronco cede um pouco com o peso; o corpo de colisao fica parado.
         cena.tweens.add({
