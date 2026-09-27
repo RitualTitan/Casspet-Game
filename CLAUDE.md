@@ -86,6 +86,17 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   as vezes param no meio e disparam, ficam mais frequentes e vem em dupla, para o jogador nao decorar o padrao. Enfeites atras dos troncos
   (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
   do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
+- **Poderes** (`poderes`, `criarItemPoder`, `ativarPoder`, `atualizarPoderes`): bolhas no meio de alguns troncos,
+  a primeira perto de `troncoPoderes` e depois a cada 22 a 34. **Ima** puxa os granulados perto (`raioIma`),
+  **escudo** segura uma bicada (so aparece depois de `troncoPassaros`) e **pacote furado** faz o pacote do
+  guaxinim vazar: todo tronco a frente ganha granulado. Icones redondos embaixo dos troncos, com anel de tempo.
+  O tempo corre no `update`, entao para na pausa.
+- **Combo** (`niveisCombo`, `contarCombo`, `quebrarCombo`): granulados seguidos valem x2 (5) e x3 (10). Quebra
+  com uma bicada ou quando o gato pousa num tronco novo deixando para tras o granulado de um tronco ja pisado
+  (os pulados pela mola ou pelo super pulo nao contam). Etiqueta embaixo da placa de granulados.
+- **Troncos especiais** (nunca rachados): **mola** (`fx_mola`, `pularNaMola`, `impulsoMola`) a partir de
+  `troncoMola`, a cada 12 a 20; **balanco** pendurado em dois cipos (`desenharCipos`, movimento `tipo: 'balanco'`)
+  a partir de `troncoBalanco`, a cada 14 a 22.
 
 ## Menus
 
@@ -97,7 +108,10 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 - Botoes dentro de paineis fixos precisam de `setScrollFactor(0)` no proprio botao, senao o toque segue a camera.
 - `scene.restart()` sem dados repete os do ultimo reinicio; `voltarAoMenu` passa `{ reiniciar: false }`.
 - `index.html` mostra uma caixa "O jogo travou" com o motivo e RECARREGAR se acontecer um erro de script
-  (o usuario relatou um travamento no JOGAR DE NOVO que nao foi reproduzido).
+  (o usuario relatou um travamento no JOGAR DE NOVO que nao foi reproduzido). O Phaser carrega com
+  `crossorigin`, para a caixa mostrar o erro de verdade em vez de "Script error.".
+- Ao reiniciar a cena, zere no `create` toda referencia a objeto da partida anterior antes de usa-la: o MENU
+  e o JOGAR DE NOVO travavam depois de perder no espaco porque o ceu religava as folhas ja destruidas.
 
 ## Missoes e compartilhar
 

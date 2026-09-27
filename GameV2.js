@@ -97,6 +97,20 @@ const troncoPassaros = 25;
 const granuladosBicada = 3;
 // Granulados que escapam do pacote quando o gato encosta no guaxinim distraido.
 const granuladosSusto = 5;
+// Poderes em bolhas sobre alguns troncos: o primeiro perto de troncoPoderes, depois a cada 22 a 34.
+const troncoPoderes = 12;
+const poderes = {
+    ima: { nome: 'ÍMÃ', dica: 'Puxa os granulados de perto', duracao: 9, cor: 0xff7a6a },
+    escudo: { nome: 'ESCUDO', dica: 'Aguenta uma bicada', duracao: 20, cor: 0x7cc8ff },
+    pacote: { nome: 'PACOTE FURADO', dica: 'Granulado em todos os troncos', duracao: 10, cor: 0xffd24a }
+};
+const raioIma = 150;
+// Granulados pegos em sequencia, sem deixar nenhum para tras, valem x2 e depois x3.
+const niveisCombo = [{ seguidos: 10, vale: 3 }, { seguidos: 5, vale: 2 }];
+// Troncos especiais: a mola joga o gato bem alto; o balanco fica pendurado em cipos.
+const troncoMola = 30;
+const troncoBalanco = 45;
+const impulsoMola = 580;
 // Superficie da grama do chao, onde ficam os pes do gato no comeco.
 // Com essa altura a terra de assets/chao.webp cobre ate a borda de baixo da tela.
 const alturaChao = alturaTela - 44;
@@ -124,7 +138,11 @@ const tiposMissao = {
     dourados: { modo: 'dia', metas: [1, 2, 3], premios: [40, 60, 90],
         texto: (n) => n === 1 ? 'Pegue 1 granulado dourado' : `Pegue ${n} granulados dourados` },
     partidas: { modo: 'dia', metas: [2, 3, 5], premios: [30, 50, 80],
-        texto: (n) => `Jogue ${n} partidas` }
+        texto: (n) => `Jogue ${n} partidas` },
+    seguidos: { modo: 'partida', metas: [8, 12, 16], premios: [40, 70, 100],
+        texto: (n) => `Pegue ${n} granulados seguidos` },
+    poderes: { modo: 'dia', metas: [1, 2, 3], premios: [30, 50, 70],
+        texto: (n) => n === 1 ? 'Pegue 1 poder' : `Pegue ${n} poderes` }
 };
 // Endereco publico do jogo, usado ao compartilhar o resultado.
 const enderecoJogo = 'https://ritualtitan.github.io/Casspet-Game/';
@@ -448,6 +466,33 @@ const som = {
         this.tom(520, 0.25, { tipo: 'triangle', volume: 0.16, ate: 180, atraso: 0.03 });
         this.vibrar(40);
     },
+    // Bolha estourando e um brilho subindo.
+    poder() {
+        this.ruido(0.06, { volume: 0.15, frequencia: 3000 });
+        [784, 988, 1175, 1568].forEach((frequencia, i) =>
+            this.tom(frequencia, 0.13, { tipo: 'sine', volume: 0.13, atraso: 0.03 + i * 0.06 }));
+        this.vibrar(20);
+    },
+    fimPoder() {
+        this.tom(880, 0.16, { tipo: 'sine', volume: 0.07, ate: 440 });
+    },
+    escudo() {
+        this.tom(1500, 0.3, { tipo: 'triangle', volume: 0.14, ate: 500 });
+        this.ruido(0.12, { volume: 0.18, frequencia: 5200 });
+        this.vibrar(30);
+    },
+    mola() {
+        this.tom(170, 0.38, { tipo: 'sine', volume: 0.22, ate: 760 });
+        this.tom(340, 0.24, { tipo: 'triangle', volume: 0.06, ate: 1100, atraso: 0.04 });
+        this.vibrar(15);
+    },
+    combo(vale) {
+        [659, 880, 1047, 1319].slice(0, vale + 1).forEach((frequencia, i) =>
+            this.tom(frequencia, 0.14, { tipo: 'triangle', volume: 0.12, atraso: i * 0.06 }));
+    },
+    comboPerdido() {
+        this.tom(440, 0.22, { tipo: 'triangle', volume: 0.08, ate: 250 });
+    },
     feliz() {
         this.tom(784, 0.14, { tipo: 'sine', volume: 0.12 });
         this.tom(1047, 0.24, { tipo: 'sine', volume: 0.12, atraso: 0.11 });
@@ -688,11 +733,17 @@ function create(data = {}) {
     this.contador = 0;
     this.totalMoedas = 0;
     this.tempoMoedas = 0;
-    this.comboGranulado = 0;
+    this.combo = { seguidos: 0, vale: 1 };
     // Contagens da partida para as missoes do dia.
     this.granuladosPegos = 0;
     this.bicadas = 0;
-    this.ultimoGranulado = -Infinity;
+    // Poderes ativos (com o tempo que resta) e bolhas de poder esperando nos troncos.
+    this.poderes = {};
+    this.itensPoder = [];
+    this.proximoPoder = Phaser.Math.Between(troncoPoderes, troncoPoderes + 4);
+    this.ultimoPoder = null;
+    this.proximaMola = troncoMola + Phaser.Math.Between(0, 6);
+    this.proximoBalanco = troncoBalanco + Phaser.Math.Between(0, 6);
     this.alturaMax = 0;
     this.recorde = lerRecorde();
     this.passouRecorde = false;
@@ -1097,6 +1148,7 @@ function criarTexturasEfeitos(cena) {
         g.generateTexture(chave, 100, 60);
     });
     criarTexturasAcessorios(g);
+    criarTexturasPoderes(g);
     // Silhueta de passarinho distante para os bandos do fundo; a cor vem do tint.
     [['fx_ave_fundo_a', [[3, 4], [10, 9], [20, 13], [30, 9], [37, 4]]],
         ['fx_ave_fundo_b', [[3, 15], [10, 11], [20, 12], [30, 11], [37, 15]]]].forEach(([chave, asas]) => {
@@ -1105,6 +1157,87 @@ function criarTexturasEfeitos(cena) {
         g.generateTexture(chave, 40, 20);
     });
     g.destroy();
+}
+
+// Poderes, bolha, escudo em volta do gato e mola, desenhados em 3x (usados com escala 1/3).
+function criarTexturasPoderes(g) {
+    const contorno = 0x2a1512;
+    const desenhar = (chave, largura, altura, pintar) => {
+        g.clear().save().scaleCanvas(3, 3);
+        pintar();
+        g.restore();
+        g.generateTexture(chave, largura * 3, altura * 3);
+    };
+    // Ima de ferradura vermelho com pontas prateadas.
+    desenhar('pw_ima', 30, 30, () => {
+        const ferradura = (espessura, cor) => {
+            g.lineStyle(espessura, cor, 1).beginPath();
+            g.moveTo(7.5, 5);
+            g.lineTo(7.5, 15);
+            g.arc(15, 15, 7.5, Math.PI, 0, true);
+            g.lineTo(22.5, 5);
+            g.strokePath();
+        };
+        ferradura(10, contorno);
+        ferradura(6.5, 0xe8453c);
+        g.lineStyle(1.5, 0xff9a8a, 1).beginPath().arc(15, 15, 7.5, Math.PI * 0.85, Math.PI * 0.55, true).strokePath();
+        [4, 19].forEach((x) => g.fillStyle(0xe6ecf2, 1).fillRect(x, 2, 7, 5).lineStyle(2, contorno, 1).strokeRect(x, 2, 7, 5));
+    });
+    // Escudo azul com um brilho.
+    desenhar('pw_escudo', 30, 30, () => {
+        const pontos = [[15, 3], [26, 7], [25, 16], [15, 27], [5, 16], [4, 7]].map(([x, y]) => ({ x, y }));
+        g.fillStyle(0x3d8fd9, 1).fillPoints(pontos, true).lineStyle(2.5, contorno, 1).strokePoints(pontos, true);
+        const dentro = [[15, 7], [22, 9.5], [21.5, 15.5], [15, 22.5], [8.5, 15.5], [8, 9.5]].map(([x, y]) => ({ x, y }));
+        g.fillStyle(0x7cc8ff, 1).fillPoints(dentro, true);
+        g.fillStyle(0xffffff, 0.8).fillEllipse(11.5, 11, 3.5, 6);
+    });
+    // Pacote de granulado com um furo e granulados escapando.
+    desenhar('pw_pacote', 30, 30, () => {
+        g.fillStyle(contorno, 1).fillRoundedRect(5, 3, 17, 23, 3);
+        g.fillStyle(0xe8cc9c, 1).fillRoundedRect(6.5, 4.5, 14, 20, 2);
+        g.fillStyle(0x1e1e1e, 1).fillRect(6.5, 4.5, 14, 5);
+        g.fillStyle(0x2f6b3a, 1).fillRect(6.5, 20.5, 14, 4);
+        g.fillStyle(0xc9a06a, 1).fillRoundedRect(9, 12, 9, 6, 1.5);
+        g.fillStyle(contorno, 1).fillEllipse(19.5, 18, 5, 4);
+        [[23, 20, 2], [25.5, 24, 1.8], [22.5, 27, 1.6]].forEach(([x, y, r]) =>
+            g.fillStyle(contorno, 1).fillCircle(x, y, r + 0.8).fillStyle(0xd9a55f, 1).fillCircle(x, y, r));
+    });
+    // Bolha transparente com reflexo.
+    desenhar('pw_bolha', 48, 48, () => {
+        g.fillStyle(0xffffff, 0.14).fillCircle(24, 24, 21);
+        g.lineStyle(2, 0xffffff, 0.85).strokeCircle(24, 24, 21);
+        g.lineStyle(3, 0xffffff, 0.8).beginPath().arc(24, 24, 16, Math.PI * 1.1, Math.PI * 1.4, false).strokePath();
+        g.fillStyle(0xffffff, 0.9).fillCircle(33, 14, 2);
+    });
+    // Raios de luz atras da bolha; a cor vem do tint.
+    desenhar('pw_brilho', 60, 60, () => {
+        for (let i = 0; i < 8; i++) {
+            const a = i * Math.PI / 4;
+            g.fillStyle(0xffffff, 0.55).fillTriangle(30, 30,
+                30 + Math.cos(a - 0.14) * 30, 30 + Math.sin(a - 0.14) * 30,
+                30 + Math.cos(a + 0.14) * 30, 30 + Math.sin(a + 0.14) * 30);
+        }
+        g.fillStyle(0xffffff, 0.5).fillCircle(30, 30, 17);
+    });
+    // Campo do escudo em volta do gato.
+    desenhar('pw_campo', 96, 96, () => {
+        g.fillStyle(0x7cc8ff, 0.14).fillCircle(48, 48, 45);
+        g.lineStyle(2.5, 0xbfe6ff, 0.9).strokeCircle(48, 48, 45);
+        g.lineStyle(4, 0xffffff, 0.7).beginPath().arc(48, 48, 38, Math.PI * 1.1, Math.PI * 1.45, false).strokePath();
+        g.lineStyle(2, 0xffffff, 0.5).beginPath().arc(48, 48, 38, Math.PI * 0.15, Math.PI * 0.3, false).strokePath();
+    });
+    // Mola: base, espiral prateada e tampa vermelha.
+    desenhar('fx_mola', 44, 22, () => {
+        g.fillStyle(contorno, 1).fillRoundedRect(10, 17, 24, 5, 2);
+        g.fillStyle(0x6c7488, 1).fillRoundedRect(11.5, 18, 21, 3, 1);
+        const espiral = [];
+        for (let i = 0; i <= 6; i++) espiral.push({ x: i % 2 ? 29 : 15, y: 18 - i * 2.2 });
+        g.lineStyle(4.5, contorno, 1).strokePoints(espiral, false);
+        g.lineStyle(2.2, 0xd8dee6, 1).strokePoints(espiral, false);
+        g.fillStyle(contorno, 1).fillRoundedRect(2, 0, 40, 7, 3.5);
+        g.fillStyle(0xe8453c, 1).fillRoundedRect(3.5, 1.2, 37, 4.6, 2.3);
+        g.fillStyle(0xff9a8a, 1).fillRoundedRect(6, 1.8, 14, 1.6, 0.8);
+    });
 }
 
 // Acessorios da loja e o icone da placa LOJA, no mesmo traco escuro do gato.
@@ -1461,7 +1594,8 @@ function atualizarPassaros(cena, delta) {
         if (!passaro.acertou && !protegido && !cena.morreu &&
             Math.abs(imagem.x - corpo.center.x) < corpo.halfWidth + (passaro.ovni ? 22 : 16) &&
             Math.abs(imagem.y - corpo.center.y) < corpo.halfHeight + (passaro.ovni ? 8 : 10)) {
-            bicarGato(cena, passaro);
+            if (cena.poderes.escudo) defenderComEscudo(cena, passaro);
+            else bicarGato(cena, passaro);
         }
         const saiu = passaro.direcao > 0 ? imagem.x > config.width + 50 : imagem.x < -50;
         if (saiu || imagem.y > camera.scrollY + config.height + 60) {
@@ -1509,6 +1643,7 @@ function criarPassaro(cena, ovni = false, atrasoAviso = 0) {
 function bicarGato(cena, passaro) {
     passaro.acertou = true;
     cena.bicadas += 1;
+    quebrarCombo(cena);
     const caixa = cena.caixa;
     const agora = cena.time.now;
     // Um instante protegido, piscando, para outra bicada nao vir em seguida.
@@ -1589,7 +1724,17 @@ function criarHud(cena) {
     const troncos = fixo(cena.add.container(56, 26, [sombra(84, 28, 10), fundoTroncos, iconeTroncos, textoTroncos]));
     const botaoPausa = criarBotaoHud(cena, 294, desenharIconePausa, () => alternarPausa(cena));
     const botaoSom = criarBotaoHud(cena, 336, desenharIconeSom, () => som.alternarMudo());
-    cena.hud = { granulados, icone, texto, troncos, textoTroncos, botaoSom };
+    // Sequencia de granulados (combo), embaixo da placa; so aparece a partir de 2 seguidos.
+    const textoCombo = cena.add.text(0, -1, '', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold', color: '#fff4d6',
+        stroke: '#2a1410', strokeThickness: 3
+    }).setOrigin(0.5);
+    const barraCombo = cena.add.graphics();
+    const combo = fixo(cena.add.container(180, 57, [
+        cena.add.image(0, 2, texturaMadeira(cena, 100, 28, { raio: 10, escurecer: 0.3 })).setScale(1 / escalaMadeira),
+        textoCombo, barraCombo
+    ])).setVisible(false);
+    cena.hud = { granulados, icone, texto, troncos, textoTroncos, botaoSom, combo, textoCombo, barraCombo };
     atualizarHud(cena);
     // Entram caindo do alto, um de cada vez.
     [troncos, granulados, botaoPausa.botao, botaoSom.botao].forEach((item, i) => {
@@ -2172,7 +2317,7 @@ function soltarGranuladoDoPacote(cena, x, y, indice) {
                     granulado.destroy();
                     if (cena.morreu) return;
                     somarGranulado(cena);
-                    som.granulado(cena.comboGranulado);
+                    som.granulado(indice * 2);
                     cena.efeitos.brilho.explode(4, cena.caixa.x, cena.caixa.y);
                 }
             });
@@ -2416,8 +2561,17 @@ function mostrarMorte(cena) {
 
 function criarPlataforma(cena, x, y, largura, chao = false) {
     const numero = chao ? 0 : ++cena.totalTroncos;
+    // Troncos especiais aparecem de tempos em tempos e nunca sao rachados.
+    let especial = null;
+    if (!chao && numero >= cena.proximaMola) {
+        especial = 'mola';
+        cena.proximaMola = numero + Phaser.Math.Between(12, 20);
+    } else if (!chao && numero >= cena.proximoBalanco) {
+        especial = 'balanco';
+        cena.proximoBalanco = numero + Phaser.Math.Between(14, 22);
+    }
     // O chao e os primeiros 20 troncos sao resistentes.
-    const fragil = numero > 20 && Phaser.Math.Between(1, 10) <= 8;
+    const fragil = !especial && numero > 20 && Phaser.Math.Between(1, 10) <= 8;
     const textura = fragil ? 'troncoRachado' : 'troncoLiso';
     // Troncos mais grossos deixam as rachaduras mais visiveis.
     const altura = chao ? 16 : 32;
@@ -2436,7 +2590,19 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     // No espaco, duas a cada tres se movem, e mais longe.
     const noEspaco = cena.ceu && cena.ceu.fase >= faseEspaco;
     const amplitude = noEspaco ? 55 : 40;
-    if (!chao && (numero % 3 === 0 || (noEspaco && numero % 3 === 1))) {
+    if (especial === 'balanco') {
+        // Pendurado em dois cipos: vai e volta num arco, sempre na horizontal.
+        const margemMovimento = plataforma.displayWidth / 2 + 12 + 45;
+        plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento, config.width - margemMovimento);
+        plataforma.body.updateFromGameObject();
+        plataforma.movimento = {
+            tipo: 'balanco', centro: plataforma.x, yBase: plataforma.y, comprimento: 260,
+            fase: Phaser.Math.FloatBetween(0, Math.PI * 2), sentido: 1, amplitude: 45, velocidade: 1.8
+        };
+        plataforma.cipos = cena.add.graphics().setDepth(-0.5);
+        plataforma.once('destroy', () => plataforma.cipos.destroy());
+        desenharCipos(plataforma);
+    } else if (!chao && (numero % 3 === 0 || (noEspaco && numero % 3 === 1))) {
         const margemMovimento = plataforma.displayWidth / 2 + 12 + amplitude;
         plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento,
             config.width - margemMovimento);
@@ -2449,15 +2615,53 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
             velocidade: 1.2
         };
     }
+    if (especial === 'mola') {
+        plataforma.mola = cena.add.image(plataforma.x, topoTronco(plataforma) + 3, 'fx_mola')
+            .setOrigin(0.5, 1).setScale(1 / 3).setDepth(0.4);
+        plataforma.once('destroy', () => plataforma.mola.destroy());
+    }
     plataforma.body.checkCollision.down = false;
     plataforma.body.checkCollision.left = false;
     plataforma.body.checkCollision.right = false;
+    if (chao) return;
     // Especial raro: intervalo aleatorio de 18 a 30 plataformas entre dourados.
-    const dourada = !chao && numero >= cena.proximoGranuladoDourado;
+    const dourada = numero >= cena.proximoGranuladoDourado;
     if (dourada) cena.proximoGranuladoDourado = numero + Phaser.Math.Between(18, 30);
-    if (!chao && (dourada || Phaser.Math.Between(1, 100) <= 40)) {
+    if (!dourada && numero >= cena.proximoPoder) {
+        cena.proximoPoder = numero + Phaser.Math.Between(22, 34);
+        criarItemPoder(cena, plataforma);
+    } else if (dourada || cena.poderes.pacote || Phaser.Math.Between(1, 100) <= 40) {
+        // Com o pacote furado, todo tronco novo ganha granulado.
         criarMoeda(cena, plataforma, dourada);
     }
+}
+
+// Dois cipos descem dos galhos la de cima ate as pontas do tronco do balanco.
+function desenharCipos(plataforma) {
+    const movimento = plataforma.movimento;
+    const g = plataforma.cipos;
+    const afastamento = plataforma.displayWidth * 0.34;
+    const topo = movimento.yBase - movimento.comprimento;
+    g.clear();
+    [-1, 1].forEach((lado) => {
+        const baixoX = plataforma.x + lado * afastamento;
+        const baixoY = plataforma.y - 4;
+        const cimaX = movimento.centro + lado * afastamento;
+        g.lineStyle(5, 0x1f3414, 1).lineBetween(baixoX, baixoY, cimaX, topo);
+        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(baixoX, baixoY, cimaX, topo);
+        // Folhinhas ao longo do cipo.
+        for (let i = 1; i <= 3; i++) {
+            const t = i / 4;
+            const fx = Phaser.Math.Linear(baixoX, cimaX, t);
+            const fy = Phaser.Math.Linear(baixoY, topo, t);
+            const virada = i % 2 ? 1 : -1;
+            g.fillStyle(0x1f3414, 1).fillEllipse(fx + virada * 5, fy, 11, 6);
+            g.fillStyle(0x7cc242, 1).fillEllipse(fx + virada * 5, fy, 8, 4);
+        }
+        // O cipo continua para cima, alem da tela.
+        g.lineStyle(5, 0x1f3414, 1).lineBetween(cimaX, topo, cimaX, topo - 500);
+        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(cimaX, topo, cimaX, topo - 500);
+    });
 }
 
 function criarMoeda(cena, plataforma, dourada = false) {
@@ -2465,6 +2669,7 @@ function criarMoeda(cena, plataforma, dourada = false) {
         .setScale(38 / larguraGranulado).setDepth(2);
     moeda.dourada = dourada;
     moeda.plataforma = plataforma;
+    plataforma.temItem = true;
     moeda.yBase = moeda.y;
     moeda.fase = Phaser.Math.FloatBetween(0, Math.PI * 2);
     if (dourada) {
@@ -2552,7 +2757,29 @@ function atualizarMoedas(cena, delta) {
             moeda.destroy();
             continue;
         }
-        if (moeda.plataforma.active) moeda.x = moeda.plataforma.x;
+        if (moeda.atraida) {
+            // O ima puxa o granulado ate o gato, cada vez mais rapido.
+            const corpo = cena.caixa.body;
+            moeda.velocidadeIma = Math.min(900, (moeda.velocidadeIma || 180) + delta * 1.4);
+            const passo = moeda.velocidadeIma * delta / 1000;
+            const dx = corpo.center.x - moeda.x;
+            const dy = corpo.center.y - moeda.y;
+            const distancia = Math.hypot(dx, dy) || 1;
+            moeda.x += dx / distancia * Math.min(passo, distancia);
+            moeda.y += dy / distancia * Math.min(passo, distancia);
+            moeda.yBase = moeda.y;
+            moeda.angle += delta * 0.6;
+            if (moeda.dourada) atualizarBrilhoGranulado(moeda, tempo);
+            moeda.body.updateFromGameObject();
+            continue;
+        }
+        if (moeda.plataforma.active) {
+            moeda.x = moeda.plataforma.x;
+            // O balanco sobe um pouco nas pontas do arco; o granulado vai junto.
+            if (moeda.plataforma.movimento && moeda.plataforma.movimento.tipo === 'balanco') {
+                moeda.yBase = moeda.plataforma.y - 60;
+            }
+        }
         moeda.y = moeda.yBase + Math.sin(tempo * 3 + moeda.fase) * 5;
         moeda.angle = Math.sin(tempo * 6 + moeda.fase) * 12;
         if (moeda.dourada) atualizarBrilhoGranulado(moeda, tempo);
@@ -2563,12 +2790,23 @@ function atualizarMoedas(cena, delta) {
 
 function atualizarPlataformasMoveis(cena, delta) {
     for (const plataforma of cena.plataformas.getChildren()) {
+        // A mola acompanha o tronco que se mexe.
+        if (plataforma.mola) plataforma.mola.x = plataforma.x;
         const movimento = plataforma.movimento;
         if (!movimento) continue;
         movimento.fase += delta / 1000 * movimento.velocidade * cena.velocidadeJogo;
         const margem = plataforma.displayWidth / 2 + 12;
         const amplitude = Math.max(0, Math.min(movimento.amplitude,
             movimento.centro - margem, config.width - margem - movimento.centro));
+        if (movimento.tipo === 'balanco') {
+            // Pendulo: anda no arco dos cipos e sobe um pouquinho nas pontas.
+            const angulo = Math.asin(amplitude / movimento.comprimento) * Math.sin(movimento.fase);
+            plataforma.x = movimento.centro + Math.sin(angulo) * movimento.comprimento;
+            plataforma.y = movimento.yBase - movimento.comprimento * (1 - Math.cos(angulo));
+            plataforma.body.updateFromGameObject();
+            desenharCipos(plataforma);
+            continue;
+        }
         plataforma.x = movimento.centro + Math.sin(movimento.fase) * amplitude * movimento.sentido;
         // O corpo estatico acompanha a imagem para manter o salto no lugar certo.
         plataforma.body.updateFromGameObject();
@@ -2580,30 +2818,93 @@ function coletarMoeda(caixa, moeda) {
     if (!cena.iniciado || cena.morreu || !moeda.active || moeda.coletada) return;
     moeda.coletada = true;
     moeda.body.enable = false;
-    somarGranulado(cena);
+    const vale = contarCombo(cena);
+    somarGranulado(cena, vale);
     cena.efeitos.brilho.explode(moeda.dourada ? 22 : 8, moeda.x, moeda.y);
     if (moeda.dourada) {
         registrarMissao(cena, 'dourados', 1);
         aplicarImpulsoDourado(caixa);
         mostrarPopup(cena, moeda.x, moeda.y - 14, 'SUPER PULO!', '#ffd24a', 18);
     } else {
-        som.granulado(cena.comboGranulado);
-        mostrarPopup(cena, moeda.x, moeda.y - 10, '+1');
+        som.granulado(cena.combo.seguidos);
+        mostrarPopup(cena, moeda.x, moeda.y - 10, '+' + vale,
+            vale === 3 ? '#ffd24a' : vale === 2 ? '#ffb36b' : corTexto, 16 + (vale - 1) * 3);
     }
     voarParaPlacar(cena, moeda.x, moeda.y, moeda.texture.key, moeda.scaleX);
     moeda.destroy();
 }
 
-function somarGranulado(cena) {
-    cena.totalMoedas += 1;
-    cena.granuladosPegos += 1;
+function somarGranulado(cena, valor = 1) {
+    cena.totalMoedas += valor;
+    cena.granuladosPegos += valor;
     registrarMissao(cena, 'granulados', cena.granuladosPegos);
-    // Coletas em sequencia rapida formam um combo sonoro.
-    const agora = cena.time.now;
-    cena.comboGranulado = agora - cena.ultimoGranulado < 1800 ? cena.comboGranulado + 1 : 0;
-    cena.ultimoGranulado = agora;
     atualizarHud(cena);
     pulsarHud(cena, cena.hud.granulados);
+}
+
+// Mais um granulado na sequencia; devolve quanto ele vale (x1, x2 ou x3).
+function contarCombo(cena) {
+    const combo = cena.combo;
+    combo.seguidos += 1;
+    registrarMissao(cena, 'seguidos', combo.seguidos);
+    const nivel = niveisCombo.find((item) => combo.seguidos >= item.seguidos);
+    const vale = nivel ? nivel.vale : 1;
+    if (vale > combo.vale) {
+        const caixa = cena.caixa;
+        mostrarPopup(cena, caixa.x, caixa.y - 70, `COMBO x${vale}!`, vale === 3 ? '#ffd24a' : '#ffb36b', 22);
+        cena.efeitos.brilho.explode(14, caixa.x, caixa.y - 20);
+        som.combo(vale);
+    }
+    combo.vale = vale;
+    atualizarCombo(cena, true);
+    return vale;
+}
+
+// Um granulado ficou para tras (ou veio uma bicada): a sequencia recomeca.
+function quebrarCombo(cena) {
+    const combo = cena.combo;
+    if (combo.seguidos === 0) return;
+    if (combo.vale > 1) {
+        mostrarPopup(cena, cena.caixa.x, cena.caixa.y - 70, 'combo perdido', '#f4ddc9', 14);
+        som.comboPerdido();
+    }
+    combo.seguidos = 0;
+    combo.vale = 1;
+    atualizarCombo(cena, false);
+}
+
+// Etiqueta embaixo da placa de granulados: a sequencia atual e quanto cada um vale.
+function atualizarCombo(cena, pulsar) {
+    const hud = cena.hud;
+    if (!hud) return;
+    const combo = cena.combo;
+    const etiqueta = hud.combo;
+    cena.tweens.killTweensOf(etiqueta);
+    if (combo.seguidos < 2) {
+        if (etiqueta.visible) {
+            cena.tweens.add({
+                targets: etiqueta, alpha: 0, x: { from: 174, to: 180 }, duration: 260,
+                ease: 'Sine.easeInOut', onComplete: () => etiqueta.setVisible(false)
+            });
+        }
+        return;
+    }
+    const falta = niveisCombo.slice().reverse().find((item) => combo.seguidos < item.seguidos);
+    hud.textoCombo.setText(combo.vale > 1
+        ? `COMBO x${combo.vale} · ${combo.seguidos}` : `${combo.seguidos} seguidos`)
+        .setColor(combo.vale === 3 ? '#ffd24a' : combo.vale === 2 ? '#ffb36b' : '#fff4d6');
+    // Barrinha ate o proximo nivel do combo.
+    const barra = hud.barraCombo;
+    const anterior = niveisCombo.slice().reverse().filter((item) => combo.seguidos >= item.seguidos).pop();
+    const inicio = anterior ? anterior.seguidos : 0;
+    const progresso = falta ? (combo.seguidos - inicio) / (falta.seguidos - inicio) : 1;
+    barra.clear().fillStyle(0x1a0e08, 0.6).fillRoundedRect(-40, 8, 80, 4, 2);
+    barra.fillStyle(combo.vale === 1 ? 0xffb36b : 0xffd24a, 1).fillRoundedRect(-40, 8, 80 * progresso, 4, 2);
+    etiqueta.setVisible(true).setAlpha(1).setX(180);
+    if (pulsar) {
+        etiqueta.setScale(1.2);
+        cena.tweens.add({ targets: etiqueta, scale: 1, duration: 260, ease: 'Back.easeOut' });
+    }
 }
 
 function configurarComandoSecreto(cena) {
@@ -2638,6 +2939,214 @@ function aplicarImpulsoDourado(caixa, forca = 640) {
         targets: onda, scaleX: 3, scaleY: 1.3, alpha: 0,
         duration: 350, ease: 'Quad.easeOut', onComplete: () => onda.destroy()
     });
+}
+
+// A mola encolhe com o peso e joga o gato bem mais alto que o pulo normal.
+function pularNaMola(cena, plataforma) {
+    const caixa = cena.caixa;
+    caixa.body.setVelocityY(-impulsoMola * cena.velocidadeJogo);
+    som.mola();
+    deformarGato(cena, 1.45, 0.6, 520);
+    cena.efeitos.poeira.explode(9, caixa.x, caixa.y + 36);
+    mostrarPopup(cena, plataforma.x, topoTronco(plataforma) - 24, 'BOING!', '#ffd24a', 16);
+    const mola = plataforma.mola;
+    cena.tweens.killTweensOf(mola);
+    mola.setScale(1 / 3, 0.45 / 3);
+    cena.tweens.add({
+        targets: mola, scaleY: 1 / 3, duration: 650,
+        ease: 'Elastic.easeOut', easeParams: [1.3, 0.3]
+    });
+}
+
+// Bolha com um poder, flutuando no meio do tronco. Escudo so depois que os passaros chegam.
+function criarItemPoder(cena, plataforma) {
+    const opcoes = Object.keys(poderes).filter((tipo) => tipo !== cena.ultimoPoder &&
+        (tipo !== 'escudo' || plataforma.numero >= troncoPassaros));
+    const tipo = Phaser.Utils.Array.GetRandom(opcoes);
+    cena.ultimoPoder = tipo;
+    const item = cena.add.container(plataforma.x, plataforma.y - 62, [
+        cena.add.image(0, 0, 'pw_brilho').setScale(1 / 3).setTint(poderes[tipo].cor).setAlpha(0.55),
+        cena.add.image(0, 0, 'pw_' + tipo).setScale(1 / 3),
+        cena.add.image(0, 0, 'pw_bolha').setScale(1 / 3)
+    ]).setDepth(2.2);
+    item.tipo = tipo;
+    item.plataforma = plataforma;
+    item.yBase = item.y;
+    item.fase = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    plataforma.temItem = true;
+    cena.itensPoder.push(item);
+}
+
+function atualizarItensPoder(cena, delta) {
+    const tempo = cena.tempoMoedas / 1000;
+    const corpo = cena.caixa.body;
+    const limite = cena.cameras.main.scrollY + config.height + 60;
+    for (let i = cena.itensPoder.length - 1; i >= 0; i--) {
+        const item = cena.itensPoder[i];
+        if (item.yBase > limite) {
+            item.destroy();
+            cena.itensPoder.splice(i, 1);
+            continue;
+        }
+        if (item.plataforma.active) {
+            item.x = item.plataforma.x;
+            item.yBase = item.plataforma.y - 62;
+        }
+        item.y = item.yBase + Math.sin(tempo * 2.4 + item.fase) * 6;
+        // A bolha balanca como gelatina e o brilho de tras gira devagar.
+        const bolha = item.list[2];
+        bolha.setScale((1 + Math.sin(tempo * 5 + item.fase) * 0.05) / 3,
+            (1 - Math.sin(tempo * 5 + item.fase) * 0.05) / 3);
+        item.list[0].angle = tempo * 40;
+        item.list[1].angle = Math.sin(tempo * 3 + item.fase) * 10;
+        if (!cena.morreu && Math.hypot(corpo.center.x - item.x, corpo.center.y - item.y) < 46) {
+            cena.itensPoder.splice(i, 1);
+            pegarPoder(cena, item);
+        }
+    }
+}
+
+function pegarPoder(cena, item) {
+    const dados = poderes[item.tipo];
+    const anel = cena.add.circle(item.x, item.y, 24).setStrokeStyle(3, 0xffffff, 0.9).setDepth(6);
+    cena.tweens.add({
+        targets: anel, scale: 2.2, alpha: 0, duration: 380, ease: 'Quad.easeOut',
+        onComplete: () => anel.destroy()
+    });
+    cena.efeitos.brilho.explode(16, item.x, item.y);
+    som.poder();
+    mostrarFaixa(cena, dados.nome + '!', dados.dica, '#' + dados.cor.toString(16).padStart(6, '0'));
+    registrarMissao(cena, 'poderes', 1);
+    item.destroy();
+    ativarPoder(cena, item.tipo);
+}
+
+// Pegar de novo um poder que ja esta ativo so renova o tempo.
+function ativarPoder(cena, tipo) {
+    const dados = poderes[tipo];
+    const atual = cena.poderes[tipo];
+    if (atual) {
+        atual.resta = dados.duracao;
+        return;
+    }
+    const poder = { resta: dados.duracao, efeito: null, tempo: 0 };
+    cena.poderes[tipo] = poder;
+    if (tipo === 'escudo') {
+        poder.efeito = cena.add.image(cena.gato.x, cena.gato.y - 40, 'pw_campo').setScale(0.2 / 3).setDepth(5.2);
+        cena.tweens.add({ targets: poder.efeito, scale: 1 / 3, duration: 380, ease: 'Back.easeOut' });
+    } else if (tipo === 'ima') {
+        poder.efeito = cena.add.graphics().setDepth(4.8);
+    } else if (tipo === 'pacote') {
+        furarPacote(cena);
+    }
+    // Icone redondo no placar, com um anel que esvazia conforme o tempo acaba.
+    const anel = cena.add.graphics();
+    poder.icone = cena.add.container(0, 66, [
+        cena.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 17),
+        cena.add.image(0, 0, texturaMadeira(cena, 34, 34, { raio: 15 })).setScale(1 / escalaMadeira),
+        cena.add.image(0, 0, 'pw_' + tipo).setScale(20 / 90),
+        anel
+    ]).setScrollFactor(0).setDepth(10).setScale(0);
+    poder.anel = anel;
+    cena.tweens.add({ targets: poder.icone, scale: 1, duration: 300, ease: 'Back.easeOut' });
+    organizarIconesPoder(cena);
+}
+
+function organizarIconesPoder(cena) {
+    Object.values(cena.poderes).forEach((poder, i) => {
+        cena.tweens.add({ targets: poder.icone, x: 30 + i * 40, duration: 200, ease: 'Sine.easeOut' });
+    });
+}
+
+function encerrarPoder(cena, tipo, animar = true) {
+    const poder = cena.poderes[tipo];
+    if (!poder) return;
+    delete cena.poderes[tipo];
+    const efeito = poder.efeito;
+    if (efeito && animar && tipo === 'escudo') {
+        cena.tweens.add({
+            targets: efeito, scale: 1.5 / 3, alpha: 0, duration: 260, onComplete: () => efeito.destroy()
+        });
+    } else if (efeito) {
+        efeito.destroy();
+    }
+    const icone = poder.icone;
+    cena.tweens.add({ targets: icone, scale: 0, duration: 200, ease: 'Back.easeIn', onComplete: () => icone.destroy() });
+    if (animar && tipo !== 'escudo') som.fimPoder();
+    organizarIconesPoder(cena);
+}
+
+function atualizarPoderes(cena, delta) {
+    const segundos = delta / 1000;
+    const corpo = cena.caixa.body;
+    for (const tipo of Object.keys(cena.poderes)) {
+        const poder = cena.poderes[tipo];
+        const dados = poderes[tipo];
+        poder.resta -= segundos;
+        poder.tempo += segundos;
+        if (poder.resta <= 0) {
+            encerrarPoder(cena, tipo);
+            continue;
+        }
+        const fracao = poder.resta / dados.duracao;
+        poder.anel.clear().lineStyle(3, 0x1a0e08, 0.5).strokeCircle(0, 0, 15);
+        poder.anel.lineStyle(3, dados.cor, 1).beginPath()
+            .arc(0, 0, 15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fracao, false).strokePath();
+        // Pisca nos ultimos 2 segundos, avisando que vai acabar.
+        const acabando = poder.resta < 2 && Math.floor(poder.resta * 6) % 2 === 0;
+        poder.icone.setAlpha(acabando ? 0.45 : 1);
+        if (tipo === 'escudo') {
+            poder.efeito.setPosition(cena.gato.x, cena.gato.y - 40)
+                .setAngle(poder.tempo * 30).setAlpha(acabando ? 0.35 : 0.8 + Math.sin(poder.tempo * 6) * 0.2);
+        } else if (tipo === 'ima') {
+            // Ondas vermelhas fechando em volta do gato mostram o alcance do ima.
+            const g = poder.efeito.clear();
+            for (let k = 0; k < 2; k++) {
+                const t = (poder.tempo * 0.9 + k / 2) % 1;
+                g.lineStyle(2, dados.cor, (acabando ? 0.15 : 0.35) * t).strokeCircle(corpo.center.x, corpo.center.y,
+                    raioIma * (1 - t) + 20);
+            }
+            for (const moeda of cena.moedas.getChildren()) {
+                if (moeda.atraida || moeda.coletada || moeda.escondida || !moeda.visible) continue;
+                if (Math.hypot(moeda.x - corpo.center.x, moeda.y - corpo.center.y) < raioIma) moeda.atraida = true;
+            }
+        } else if (tipo === 'pacote' && cena.guaxinim) {
+            // O pacote vai perdendo granulados pelo furo.
+            poder.proximoGranulo = (poder.proximoGranulo || 0) - segundos;
+            if (poder.proximoGranulo <= 0) {
+                poder.proximoGranulo = 0.14;
+                const guaxinim = cena.guaxinim;
+                cena.efeitos.granulos.explode(1, guaxinim.visual.x + guaxinim.direcao * 19, guaxinim.visual.y - 14);
+            }
+        }
+    }
+}
+
+// O pacote do guaxinim fura: todo tronco a frente ganha um granulado.
+function furarPacote(cena) {
+    for (const plataforma of cena.plataformas.getChildren()) {
+        if (plataforma.numero > cena.ultimoTronco && !plataforma.temItem) criarMoeda(cena, plataforma);
+    }
+    const guaxinim = cena.guaxinim;
+    if (!guaxinim) return;
+    guaxinim.expressao = 'guaxinim_susto';
+    guaxinim.expressaoAte = guaxinim.tempo + 1.2;
+    mostrarPopup(cena, guaxinim.visual.x, guaxinim.visual.y - 66, 'meu pacote!', '#f2f2f2', 14);
+    cena.efeitos.granulos.explode(6, guaxinim.visual.x + guaxinim.direcao * 19, guaxinim.visual.y - 20);
+}
+
+// O escudo segura a bicada: o passaro (ou OVNI) bate, volta e vai embora.
+function defenderComEscudo(cena, passaro) {
+    passaro.acertou = true;
+    passaro.direcao *= -1;
+    passaro.imagem.setFlipX(passaro.direcao < 0);
+    cena.caixa.protegidoAte = cena.time.now + 700;
+    const efeito = cena.poderes.escudo.efeito;
+    cena.efeitos.brilho.explode(14, efeito.x, efeito.y);
+    mostrarPopup(cena, cena.caixa.x, cena.caixa.y - 60, 'DEFENDEU!', '#7cc8ff', 18);
+    cena.cameras.main.shake(100, 0.003);
+    som.escudo();
+    encerrarPoder(cena, 'escudo');
 }
 
 function ajustarLarguraTronco(cena, plataforma) {
@@ -3621,6 +4130,15 @@ function pular(caixa, plataforma) {
     cena.ultimoTronco = Math.max(cena.ultimoTronco, plataforma.numero);
     // Cada tronco conta uma unica vez; o chao nao entra na contagem.
     if (plataforma.numero > 0 && !plataforma.contada) {
+        // Granulado de um tronco ja pisado que ficou para tras quebra a sequencia.
+        // Os de troncos pulados por um super pulo ou pela mola nao contam.
+        for (const moeda of cena.moedas.getChildren()) {
+            if (moeda.coletada || moeda.perdida || moeda.escondida || moeda.atraida) continue;
+            if (moeda.plataforma.contada && moeda.plataforma.numero < plataforma.numero) {
+                moeda.perdida = true;
+                quebrarCombo(cena);
+            }
+        }
         plataforma.contada = true;
         cena.contador += 1;
         registrarMissao(cena, 'troncos', cena.contador);
@@ -3650,12 +4168,22 @@ function pular(caixa, plataforma) {
     caixa.poseContatoAte = cena.time.now + 120 / velocidade;
     // Garante o impulso mesmo quando a plataforma quebra.
     caixa.body.setVelocityY(-400 * velocidade);
+    if (plataforma.mola) {
+        pularNaMola(cena, plataforma);
+        return;
+    }
     som.pulo();
     if (plataforma.numero === 0) cena.efeitos.grama.explode(8, caixa.x, caixa.y + 38);
     else cena.efeitos.poeira.explode(7, caixa.x, caixa.y + 36);
     deformarGato(cena, 1.3, 0.72, 420);
     if (plataforma.fragil) {
         quebrarTronco(cena, plataforma);
+    } else if (plataforma.movimento && plataforma.movimento.tipo === 'balanco') {
+        // O balanco afunda um pouco mais com o peso e ganha embalo.
+        cena.tweens.add({
+            targets: plataforma.movimento, yBase: plataforma.movimento.yBase + 9, duration: 110,
+            yoyo: true, ease: 'Quad.easeOut'
+        });
     } else if (plataforma.numero > 0) {
         // O tronco cede um pouco com o peso; o corpo de colisao fica parado.
         cena.tweens.add({
@@ -3752,6 +4280,8 @@ function update(time, delta) {
     camera.scrollY = Math.min(camera.scrollY, this.caixa.y - (config.height - folgaAbaixoGato));
     gerarPlataformas(this);
     atualizarMoedas(this, delta);
+    atualizarItensPoder(this, delta);
+    atualizarPoderes(this, delta);
     atualizarCenario(this, delta);
     atualizarCeu(this, delta);
     limparPlataformasForaDaTela(this);
