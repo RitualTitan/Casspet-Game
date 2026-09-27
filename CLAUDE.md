@@ -91,6 +91,9 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   as vezes param no meio e disparam, ficam mais frequentes e vem em dupla, para o jogador nao decorar o padrao. Enfeites atras dos troncos
   (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
   do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
+- **Poderes e balanco desligados:** o usuario aprovou o resto do pacote, mas ainda vai decidir sobre os poderes, e o
+  balanco de cipo precisa de acerto. Os dois ficam no codigo e desligados pelos interruptores `ativarPoderes` e
+  `ativarBalanco` (sem poderes, a missao "Pegue N poderes" sai do sorteio). So ligue quando o usuario aprovar.
 - **Poderes** (`poderes`, `criarItemPoder`, `ativarPoder`, `atualizarPoderes`): bolhas no meio de alguns troncos,
   a primeira perto de `troncoPoderes` e depois a cada 22 a 34. **Ima** puxa os granulados perto (`raioIma`),
   **escudo** segura uma bicada (so aparece depois de `troncoPassaros`) e **pacote furado** faz o pacote do
@@ -101,7 +104,8 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   (os pulados pela mola ou pelo super pulo nao contam). Etiqueta embaixo da placa de granulados.
 - **Troncos especiais** (nunca rachados): **mola** (`fx_mola`, `pularNaMola`, `impulsoMola`) a partir de
   `troncoMola`, a cada 12 a 20; **balanco** pendurado em dois cipos (`desenharCipos`, movimento `tipo: 'balanco'`)
-  a partir de `troncoBalanco`, a cada 14 a 22.
+  a partir de `troncoBalanco`, a cada 14 a 22. O cipo sobe reto ate passar do alto da tela (o usuario viu ele
+  terminar no meio do caminho ao subir).
 
 - **Primeira partida guiada:** na primeira partida do aparelho uma mao (indicador, nunca o dedo do meio no centro
   da palma) arrasta de um lado para o outro na metade de baixo com "Arraste o dedo aqui embaixo" e some

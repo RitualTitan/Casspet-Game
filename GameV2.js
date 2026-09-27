@@ -97,6 +97,9 @@ const troncoPassaros = 25;
 const granuladosBicada = 3;
 // Granulados que escapam do pacote quando o gato encosta no guaxinim distraido.
 const granuladosSusto = 5;
+// Interruptores: os poderes e o balanco de cipo ficam desligados no jogo publicado ate o usuario decidir.
+const ativarPoderes = false;
+const ativarBalanco = false;
 // Poderes em bolhas sobre alguns troncos: o primeiro perto de troncoPoderes, depois a cada 22 a 34.
 const troncoPoderes = 12;
 const poderes = {
@@ -155,6 +158,8 @@ const tiposMissao = {
     poderes: { modo: 'dia', metas: [1, 2, 3], premios: [30, 50, 70],
         texto: (n) => n === 1 ? 'Pegue 1 poder' : `Pegue ${n} poderes` }
 };
+// Sem poderes no jogo, a missao deles nao entra no sorteio.
+if (!ativarPoderes) delete tiposMissao.poderes;
 // Endereco publico do jogo, usado ao compartilhar o resultado.
 const enderecoJogo = 'https://ritualtitan.github.io/Casspet-Game/';
 // Os bichos sao o destaque da loja: animais que tambem usam o granulado. Sem arte ainda, ficam "em breve".
@@ -2779,7 +2784,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     if (!chao && numero >= cena.proximaMola) {
         especial = 'mola';
         cena.proximaMola = numero + Phaser.Math.Between(12, 20);
-    } else if (!chao && numero >= cena.proximoBalanco) {
+    } else if (ativarBalanco && !chao && numero >= cena.proximoBalanco) {
         especial = 'balanco';
         cena.proximoBalanco = numero + Phaser.Math.Between(14, 22);
     }
@@ -2840,7 +2845,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     // Especial raro: intervalo aleatorio de 18 a 30 plataformas entre dourados.
     const dourada = numero >= cena.proximoGranuladoDourado;
     if (dourada) cena.proximoGranuladoDourado = numero + Phaser.Math.Between(18, 30);
-    if (!dourada && numero >= cena.proximoPoder) {
+    if (ativarPoderes && !dourada && numero >= cena.proximoPoder) {
         cena.proximoPoder = numero + Phaser.Math.Between(22, 34);
         criarItemPoder(cena, plataforma);
     } else if (dourada || cena.poderes.pacote || Phaser.Math.Between(1, 100) <= 40) {
@@ -2871,9 +2876,10 @@ function desenharCipos(plataforma) {
             g.fillStyle(0x1f3414, 1).fillEllipse(fx + virada * 5, fy, 11, 6);
             g.fillStyle(0x7cc242, 1).fillEllipse(fx + virada * 5, fy, 8, 4);
         }
-        // O cipo continua para cima, alem da tela.
-        g.lineStyle(5, 0x1f3414, 1).lineBetween(cimaX, topo, cimaX, topo - 500);
-        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(cimaX, topo, cimaX, topo - 500);
+        // O cipo continua reto ate passar do alto da tela, nunca termina no meio do caminho.
+        const alto = Math.min(topo, plataforma.scene.cameras.main.scrollY - 20);
+        g.lineStyle(5, 0x1f3414, 1).lineBetween(cimaX, topo, cimaX, alto);
+        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(cimaX, topo, cimaX, alto);
     });
 }
 
