@@ -507,6 +507,7 @@ const som = {
     combo(vale) {
         [659, 880, 1047, 1319].slice(0, vale + 1).forEach((frequencia, i) =>
             this.tom(frequencia, 0.14, { tipo: 'triangle', volume: 0.12, atraso: i * 0.06 }));
+        this.vibrar([15, 40, 15]);
     },
     comboPerdido() {
         this.tom(440, 0.22, { tipo: 'triangle', volume: 0.08, ate: 250 });
