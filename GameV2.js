@@ -100,9 +100,12 @@ const granuladosSusto = 5;
 // Interruptores: os poderes e o balanco de cipo ficam desligados no jogo publicado ate o usuario decidir.
 const ativarPoderes = false;
 const ativarBalanco = false;
-// Estilo do tronco que balanca, ainda em teste: 'corda' (pendurado por cordas num galhinho de folhas, como a
-// placa do menu), 'galho' (afunda e quica como trampolim) ou 'gangorra' (inclina para o lado em que o gato pousa).
+// Estilo do tronco que balanca, ainda em teste: 'corda' (pendurado por cordas num galho com folhas, como a
+// placa do menu) ou 'galho' (afunda e quica como trampolim).
 let estiloBalanco = 'corda';
+// Artes em teste (geradas no Magnific, em assets/especiais): as folhas do balanco e o que fica no tronco de pulo alto.
+let arteGalho = 'esp_galho1';
+let arteMola = 'esp_mola1';
 // Poderes em bolhas sobre alguns troncos: o primeiro perto de troncoPoderes, depois a cada 22 a 34.
 const troncoPoderes = 12;
 const poderes = {
@@ -735,6 +738,13 @@ function preload() {
             this.load.image(bicho.id + '_' + pose, bicho.arte + arquivo + '.webp'));
     });
     this.load.image('moeda', 'assets/granulado.webp');
+    this.load.image('esp_galho1', 'assets/especiais/galho1.webp');
+    this.load.image('esp_galho2', 'assets/especiais/galho2.webp');
+    this.load.image('esp_galho3', 'assets/especiais/galho3.webp');
+    this.load.image('esp_mola1', 'assets/especiais/mola1.webp');
+    this.load.image('esp_mola2', 'assets/especiais/mola2.webp');
+    this.load.image('esp_cogumelo1', 'assets/especiais/cogumelo1.webp');
+    this.load.image('esp_cogumelo2', 'assets/especiais/cogumelo2.webp');
     this.load.svg('moedaDourada', 'assets/granulado-dourado.svg', { width: larguraGranulado, height: larguraGranulado });
     this.load.image('introducao', 'assets/inicio.webp');
     this.load.image('historia', 'assets/historia.webp');
@@ -1297,18 +1307,6 @@ function criarTexturasPoderes(g) {
         g.lineStyle(2.5, 0xbfe6ff, 0.9).strokeCircle(48, 48, 45);
         g.lineStyle(4, 0xffffff, 0.7).beginPath().arc(48, 48, 38, Math.PI * 1.1, Math.PI * 1.45, false).strokePath();
         g.lineStyle(2, 0xffffff, 0.5).beginPath().arc(48, 48, 38, Math.PI * 0.15, Math.PI * 0.3, false).strokePath();
-    });
-    // Mola: base, espiral prateada e tampa vermelha.
-    desenhar('fx_mola', 44, 22, () => {
-        g.fillStyle(contorno, 1).fillRoundedRect(10, 17, 24, 5, 2);
-        g.fillStyle(0x6c7488, 1).fillRoundedRect(11.5, 18, 21, 3, 1);
-        const espiral = [];
-        for (let i = 0; i <= 6; i++) espiral.push({ x: i % 2 ? 29 : 15, y: 18 - i * 2.2 });
-        g.lineStyle(4.5, contorno, 1).strokePoints(espiral, false);
-        g.lineStyle(2.2, 0xd8dee6, 1).strokePoints(espiral, false);
-        g.fillStyle(contorno, 1).fillRoundedRect(2, 0, 40, 7, 3.5);
-        g.fillStyle(0xe8453c, 1).fillRoundedRect(3.5, 1.2, 37, 4.6, 2.3);
-        g.fillStyle(0xff9a8a, 1).fillRoundedRect(6, 1.8, 14, 1.6, 0.8);
     });
 }
 
@@ -2826,11 +2824,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
             velocidade: 1.2
         };
     }
-    if (especial === 'mola') {
-        plataforma.mola = cena.add.image(plataforma.x, topoTronco(plataforma) + 3, 'fx_mola')
-            .setOrigin(0.5, 1).setScale(1 / 3).setDepth(0.4);
-        plataforma.once('destroy', () => plataforma.mola.destroy());
-    }
+    if (especial === 'mola') montarMola(cena, plataforma);
     plataforma.body.checkCollision.down = false;
     plataforma.body.checkCollision.left = false;
     plataforma.body.checkCollision.right = false;
@@ -2858,8 +2852,10 @@ function montarBalanco(cena, plataforma, estilo = estiloBalanco) {
             fase, sentido: 1, amplitude: 34, velocidade: 2.1, acompanharY: true
         };
         plataforma.cordas = cena.add.graphics().setDepth(-0.5);
-        plataforma.folhagem = cena.add.graphics().setDepth(-0.4);
-        desenharFolhagem(plataforma.folhagem, plataforma.x, plataforma.y - 118, plataforma.displayWidth * 0.34);
+        // Galho com folhas por cima das pontas das cordas.
+        const folhagem = cena.add.image(plataforma.x, plataforma.y - 118, arteGalho).setOrigin(0.5, 0.62).setDepth(-0.4);
+        folhagem.setScale((plataforma.displayWidth * 0.68 + 70) / folhagem.width);
+        plataforma.folhagem = folhagem;
     } else {
         // Fica no lugar: a imagem visivel afunda ou inclina e o corpo do pulo continua reto.
         plataforma.movimento = {
@@ -2868,24 +2864,11 @@ function montarBalanco(cena, plataforma, estilo = estiloBalanco) {
         };
         plataforma.visual = cena.add.image(plataforma.x, plataforma.y, plataforma.texture.key).setDepth(plataforma.depth);
         plataforma.setAlpha(0);
-        if (estilo === 'gangorra') plataforma.apoio = cena.add.graphics().setDepth(-0.1);
     }
     plataforma.body.updateFromGameObject();
-    plataforma.once('destroy', () => [plataforma.cordas, plataforma.folhagem, plataforma.visual, plataforma.apoio]
+    plataforma.once('destroy', () => [plataforma.cordas, plataforma.folhagem, plataforma.visual]
         .forEach((objeto) => objeto && objeto.destroy()));
     atualizarBalanco(plataforma, 0);
-}
-
-// Galhinho com um tufo de folhas onde as cordas ficam amarradas (enfeite, nao da para pisar).
-function desenharFolhagem(g, x, y, afastamento) {
-    g.clear();
-    g.lineStyle(7, 0x2a1512, 1).lineBetween(x - afastamento - 10, y + 2, x + afastamento + 10, y - 2);
-    g.lineStyle(4, 0x7a4a2a, 1).lineBetween(x - afastamento - 10, y + 2, x + afastamento + 10, y - 2);
-    const folhas = [[-1.25, -6, 26, 16], [-0.6, -12, 30, 18], [0, -9, 34, 20], [0.65, -13, 30, 18], [1.25, -5, 26, 16],
-        [-0.95, 3, 22, 13], [0.95, 2, 22, 13]];
-    folhas.forEach(([fx, fy, l, a]) => g.fillStyle(0x1f3414, 1).fillEllipse(x + fx * afastamento, y + fy, l + 5, a + 5));
-    folhas.forEach(([fx, fy, l, a], i) => g.fillStyle(i % 2 ? 0x5ea832 : 0x7cc242, 1).fillEllipse(x + fx * afastamento, y + fy, l, a));
-    folhas.forEach(([fx, fy, l]) => g.fillStyle(0xb8e05a, 0.8).fillEllipse(x + fx * afastamento - l * 0.15, y + fy - 3, l * 0.35, 4));
 }
 
 // Duas cordas trancadas, como as da placa do menu, das pontas do tronco ate o galhinho.
@@ -2930,24 +2913,15 @@ function atualizarBalanco(plataforma, delta) {
     // Depois do pouso, uma oscilacao que vai morrendo; parado, so um balanco leve.
     movimento.desde += segundos;
     const amortecido = Math.exp(-movimento.desde * 3.5);
-    let angulo;
-    if (movimento.estilo === 'galho') {
-        const desvio = 15 * amortecido * Math.cos(movimento.desde * 15) + Math.sin(movimento.fase * 2) * 1.5;
-        plataforma.y = movimento.yBase + desvio;
-        plataforma.body.updateFromGameObject();
-        angulo = desvio * 0.3 * movimento.lado;
-    } else {
-        angulo = movimento.lado * 13 * amortecido * Math.cos(movimento.desde * 7) + Math.sin(movimento.fase * 1.5) * 2.5;
-        const apoio = plataforma.apoio.clear();
-        const topo = plataforma.y + 10;
-        apoio.fillStyle(0x2a1512, 1).fillTriangle(plataforma.x - 13, topo + 22, plataforma.x + 13, topo + 22, plataforma.x, topo - 3);
-        apoio.fillStyle(0x7a4a2a, 1).fillTriangle(plataforma.x - 9, topo + 19, plataforma.x + 9, topo + 19, plataforma.x, topo + 2);
-    }
+    const desvio = 15 * amortecido * Math.cos(movimento.desde * 15) + Math.sin(movimento.fase * 2) * 1.5;
+    plataforma.y = movimento.yBase + desvio;
+    plataforma.body.updateFromGameObject();
+    const angulo = desvio * 0.3 * movimento.lado;
     plataforma.visual.setPosition(plataforma.x, plataforma.y)
         .setDisplaySize(plataforma.displayWidth, plataforma.displayHeight).setAngle(angulo);
 }
 
-// O gato pousou: a corda da um tranco para baixo; galho e gangorra reagem pelo lado do pouso.
+// O gato pousou: a corda da um tranco para baixo; o galho afunda e quica, pendendo para o lado do pouso.
 function reagirBalanco(cena, plataforma) {
     const movimento = plataforma.movimento;
     if (movimento.estilo === 'corda') {
@@ -3084,8 +3058,11 @@ function atualizarMoedas(cena, delta) {
 
 function atualizarPlataformasMoveis(cena, delta) {
     for (const plataforma of cena.plataformas.getChildren()) {
-        // A mola acompanha o tronco que se mexe.
-        if (plataforma.mola) plataforma.mola.x = plataforma.x;
+        // A mola acompanha o tronco que se mexe e encolhe sob os pes do gato.
+        if (plataforma.mola) {
+            plataforma.mola.x = plataforma.x;
+            apertarMola(cena, plataforma);
+        }
         const movimento = plataforma.movimento;
         if (!movimento) continue;
         if (movimento.tipo === 'balanco') {
@@ -3231,6 +3208,29 @@ function aplicarImpulsoDourado(caixa, forca = 640) {
     });
 }
 
+// Mola (ou cogumelo) em cima do tronco; a arte fica mais estreita que o tronco.
+function montarMola(cena, plataforma, arte = arteMola) {
+    const largura = arte.startsWith('esp_cogumelo') ? 52 : 44;
+    const mola = cena.add.image(plataforma.x, topoTronco(plataforma) + 4, arte).setOrigin(0.5, 1).setDepth(0.4);
+    mola.setScale(largura / mola.width);
+    mola.escalaBase = mola.scaleY;
+    mola.alturaBase = mola.displayHeight;
+    plataforma.mola = mola;
+    plataforma.once('destroy', () => mola.destroy());
+}
+
+// Enquanto o gato desce em cima dela, a mola vai encolhendo junto com os pes, para ele nao entrar na arte.
+function apertarMola(cena, plataforma) {
+    const mola = plataforma.mola;
+    if (cena.tweens.isTweening(mola)) return;
+    const corpo = cena.caixa.body;
+    const livre = mola.y - corpo.bottom;
+    const emCima = corpo.velocity.y > 0 && livre > -2 && livre < mola.alturaBase + 30 &&
+        Math.abs(corpo.center.x - plataforma.x) < plataforma.displayWidth / 2 + corpo.halfWidth;
+    const escala = emCima ? Phaser.Math.Clamp(livre / mola.alturaBase, 0.45, 1) : 1;
+    mola.scaleY = mola.escalaBase * escala;
+}
+
 // A mola encolhe com o peso e joga o gato bem mais alto que o pulo normal.
 function pularNaMola(cena, plataforma) {
     const caixa = cena.caixa;
@@ -3241,9 +3241,9 @@ function pularNaMola(cena, plataforma) {
     mostrarPopup(cena, plataforma.x, topoTronco(plataforma) - 24, 'BOING!', '#ffd24a', 16);
     const mola = plataforma.mola;
     cena.tweens.killTweensOf(mola);
-    mola.setScale(1 / 3, 0.45 / 3);
+    mola.scaleY = mola.escalaBase * 0.45;
     cena.tweens.add({
-        targets: mola, scaleY: 1 / 3, duration: 650,
+        targets: mola, scaleY: mola.escalaBase, duration: 650,
         ease: 'Elastic.easeOut', easeParams: [1.3, 0.3]
     });
 }
