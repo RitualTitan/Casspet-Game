@@ -121,6 +121,15 @@ const superficieChao = 104 / 229;
 const folgaAbaixoGato = 340;
 const chaveRecorde = 'granulando.recorde';
 const chaveMudo = 'granulando.mudo';
+// Dicas da primeira vez: cada uma aparece uma unica vez neste aparelho.
+const chaveDicas = 'granulando.dicas';
+const dicasJogo = {
+    rachado: 'Tronco rachado quebra depois do pulo!',
+    passaro: 'Desvie do pássaro: a bicada derruba granulados',
+    poder: 'Pegue a bolha para ganhar um poder!',
+    mola: 'Pule na mola para ir bem alto!',
+    combo: 'Granulados seguidos valem mais: não deixe passar!'
+};
 // Musica, efeitos e vibracao ligam e desligam separados (na pausa e em CONFIGURACOES).
 const chaveOpcoes = 'granulando.opcoes';
 // Cofrinho de granulados e itens da loja, salvos so neste aparelho.
@@ -752,6 +761,11 @@ function create(data = {}) {
     this.proximoPoder = Phaser.Math.Between(troncoPoderes, troncoPoderes + 4);
     this.ultimoPoder = null;
     this.proximaMola = troncoMola + Phaser.Math.Between(0, 6);
+    this.dicasVistas = lerArmazenado(chaveDicas, []);
+    this.filaDicas = [];
+    this.dicaAberta = null;
+    this.esperaDicas = 0;
+    this.maoTutorial = null;
     this.proximoBalanco = troncoBalanco + Phaser.Math.Between(0, 6);
     this.alturaMax = 0;
     this.recorde = lerRecorde();
@@ -1090,6 +1104,7 @@ function create(data = {}) {
             this.iniciado = true;
             this.physics.resume();
             provocarGuaxinim(this);
+            if (!this.dicasVistas.includes('mover')) mostrarMaoTutorial(this);
         });
     };
     const comecar = () => {
@@ -1939,6 +1954,120 @@ function alternarPausa(cena, pausar = !cena.pausado) {
     // Fica abaixo dos botoes, para o som continuar acessivel na pausa.
     cena.telaPausa = cena.add.container(0, 0, [sombra, titulo, dica, ...opcoes, continuar, menu])
         .setScrollFactor(0).setDepth(11);
+}
+
+// Primeira partida: uma mao arrasta de um lado para o outro na metade de baixo da tela,
+// mostrando como andar. Some quando o jogador arrasta o dedo (ou usa o teclado) por um tempinho.
+function mostrarMaoTutorial(cena) {
+    const y = config.height - 150;
+    // Mao com o indicador para cima; a ponta do dedo e onde o toque encosta na tela.
+    // Primeiro a silhueta escura um pouco maior, depois o preenchimento claro por cima.
+    const formas = (folga) => {
+        // Indicador na ponta esquerda da palma, tres dedos dobrados a direita e o polegar aberto.
+        mao.fillRoundedRect(-11 - folga, -32 - folga, 10.5 + folga * 2, 34 + folga * 2, 5.25 + folga);
+        mao.fillRoundedRect(-12 - folga, -8 - folga, 29 + folga * 2, 27 + folga * 2, 9 + folga);
+        mao.fillCircle(3.5, -6, 4.8 + folga).fillCircle(9.5, -5, 4.6 + folga).fillCircle(14.5, -2, 4.3 + folga);
+        mao.fillEllipse(-15, 8, 9 + folga * 2, 17 + folga * 2);
+    };
+    const mao = cena.add.graphics();
+    mao.fillStyle(0x4d2710, 1);
+    formas(2.5);
+    mao.fillStyle(0xfff4d6, 1);
+    formas(0);
+    mao.lineStyle(1.6, 0xc9a06a, 1).lineBetween(6.5, -4, 6.5, 2).lineBetween(12, -1, 12, 4);
+    mao.fillStyle(0x4d2710, 1).fillRoundedRect(-13.5, 17, 32, 12, 3);
+    mao.fillStyle(0x3d8fd9, 1).fillRoundedRect(-11, 19.5, 27, 7, 2);
+    const toque = cena.add.circle(-5.75, -30, 10, 0xffffff, 0.35).setStrokeStyle(2, 0xffffff, 0.8);
+    const texto = cena.add.text(0, -70, 'Arraste o dedo aqui embaixo', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '16px', fontStyle: 'bold', color: '#fff4d6',
+        stroke: '#2a1410', strokeThickness: 5
+    }).setOrigin(0.5);
+    const seta = cena.add.text(0, -46, '◀   ▶', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#fff4d6', stroke: '#2a1410', strokeThickness: 4
+    }).setOrigin(0.5);
+    const dedo = cena.add.container(110, y + 34, [toque, mao]).setAngle(-12);
+    const grupo = cena.add.container(0, 0, [
+        cena.add.container(180, y, [texto, seta]), dedo
+    ]).setScrollFactor(0).setDepth(14).setAlpha(0);
+    cena.tweens.add({ targets: grupo, alpha: 1, duration: 300 });
+    cena.tweens.add({ targets: dedo, x: 250, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    cena.tweens.add({ targets: toque, scale: 1.6, alpha: 0, duration: 700, repeat: -1 });
+    cena.maoTutorial = { grupo, arrastou: 0 };
+}
+
+function fecharMaoTutorial(cena) {
+    const grupo = cena.maoTutorial.grupo;
+    cena.maoTutorial = null;
+    marcarDica(cena, 'mover');
+    cena.tweens.add({ targets: grupo, alpha: 0, duration: 300, onComplete: () => grupo.destroy() });
+}
+
+function marcarDica(cena, chave) {
+    if (cena.dicasVistas.includes(chave)) return;
+    cena.dicasVistas.push(chave);
+    salvarArmazenado(chaveDicas, cena.dicasVistas);
+}
+
+// Poe uma dica na fila, se ela nunca apareceu.
+function pedirDica(cena, chave) {
+    if (cena.dicasVistas.includes(chave) || cena.filaDicas.includes(chave)) return;
+    cena.filaDicas.push(chave);
+}
+
+function atualizarDicas(cena, delta) {
+    const mao = cena.maoTutorial;
+    if (mao) {
+        const ponteiro = cena.input.activePointer;
+        const arrastando = (ponteiro.isDown && ponteiro.downY / escalaRenderizacao > config.height / 2) ||
+            cena.cursors.left.isDown || cena.cursors.right.isDown ||
+            cena.teclasLaterais.A.isDown || cena.teclasLaterais.D.isDown;
+        if (arrastando) mao.arrastou += delta;
+        if (mao.arrastou > 700) fecharMaoTutorial(cena);
+    }
+    // Procura, de vez em quando, coisas novas na tela que ainda nao tiveram dica.
+    cena.esperaDicas -= delta;
+    if (cena.esperaDicas <= 0) {
+        cena.esperaDicas = 300;
+        const vistas = cena.dicasVistas;
+        const camera = cena.cameras.main;
+        const naTela = (y) => y > camera.scrollY + 90 && y < camera.scrollY + config.height - 60;
+        for (const plataforma of cena.plataformas.getChildren()) {
+            if (!naTela(plataforma.y)) continue;
+            if (plataforma.fragil && !vistas.includes('rachado')) pedirDica(cena, 'rachado');
+            if (plataforma.mola && !vistas.includes('mola')) pedirDica(cena, 'mola');
+        }
+        if (cena.itensPoder.some((item) => naTela(item.y))) pedirDica(cena, 'poder');
+        if (cena.passaros.length > 0) pedirDica(cena, 'passaro');
+    }
+    // Uma dica por vez, e so depois que a mao da primeira partida sumiu.
+    if (!cena.dicaAberta && !cena.maoTutorial && cena.filaDicas.length > 0) {
+        mostrarDica(cena, cena.filaDicas.shift());
+    }
+}
+
+// Plaquinha de madeira embaixo do placar, por alguns segundos.
+function mostrarDica(cena, chave) {
+    marcarDica(cena, chave);
+    const texto = cena.add.text(0, 1, dicasJogo[chave], {
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', fontStyle: 'bold', color: '#4d2710',
+        align: 'center', wordWrap: { width: 290 }
+    }).setOrigin(0.5);
+    const largura = Math.min(330, texto.width + 34);
+    const altura = texto.height + 18;
+    const placa = cena.add.container(180, 108, [
+        cena.add.graphics().fillStyle(0x1a0e08, 0.35).fillRoundedRect(-largura / 2 + 1, -altura / 2 + 3, largura - 2, altura, 12),
+        cena.add.image(0, 0, texturaMadeira(cena, largura, altura, { raio: 12 })).setScale(1 / escalaMadeira),
+        texto
+    ]).setScrollFactor(0).setDepth(14).setAlpha(0).setScale(0.6);
+    cena.dicaAberta = placa;
+    cena.tweens.add({ targets: placa, alpha: 1, scale: 1, duration: 260, ease: 'Back.easeOut' });
+    cena.tweens.add({
+        targets: placa, alpha: 0, y: 96, delay: 3400, duration: 300, ease: 'Quad.easeIn',
+        onComplete: () => {
+            placa.destroy();
+            if (cena.dicaAberta === placa) cena.dicaAberta = null;
+        }
+    });
 }
 
 // Botoes de liga e desliga da musica, dos efeitos e da vibracao (esta so onde o aparelho vibra).
@@ -2929,6 +3058,7 @@ function somarGranulado(cena, valor = 1) {
 function contarCombo(cena) {
     const combo = cena.combo;
     combo.seguidos += 1;
+    if (combo.seguidos === 3) pedirDica(cena, 'combo');
     registrarMissao(cena, 'seguidos', combo.seguidos);
     const nivel = niveisCombo.find((item) => combo.seguidos >= item.seguidos);
     const vale = nivel ? nivel.vale : 1;
@@ -4365,6 +4495,7 @@ function update(time, delta) {
     atualizarMoedas(this, delta);
     atualizarItensPoder(this, delta);
     atualizarPoderes(this, delta);
+    atualizarDicas(this, delta);
     atualizarCenario(this, delta);
     atualizarCeu(this, delta);
     limparPlataformasForaDaTela(this);

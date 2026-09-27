@@ -103,6 +103,13 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   `troncoMola`, a cada 12 a 20; **balanco** pendurado em dois cipos (`desenharCipos`, movimento `tipo: 'balanco'`)
   a partir de `troncoBalanco`, a cada 14 a 22.
 
+- **Primeira partida guiada:** na primeira partida do aparelho uma mao (indicador, nunca o dedo do meio no centro
+  da palma) arrasta de um lado para o outro na metade de baixo com "Arraste o dedo aqui embaixo" e some
+  quando o jogador arrasta (`mostrarMaoTutorial`). Depois, plaquinhas de madeira embaixo do placar explicam
+  cada novidade na primeira vez que ela aparece (`dicasJogo`: tronco rachado, passaro, bolha de poder, mola,
+  combo), uma por vez e so uma vez por aparelho (`chaveDicas`). A mao e temporaria: o controle continua sem
+  marcacao visivel.
+
 ## Menus
 
 - Menu: as placas fazem parte da pintura, entao nada se move sobre elas; `animarMenu` passa uma faixa de
