@@ -7,7 +7,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Granulando">
   <title>Casspet® - Granulando</title>
+  <!-- Instalar como app: nome, icones e tela cheia vem do manifest. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icone/icone-192.png">
+  <link rel="apple-touch-icon" href="assets/icone/icone-apple.png">
   <style>
     html, body {
       margin: 0;
@@ -53,8 +58,20 @@
         (evento.message || 'erro desconhecido') + (evento.lineno ? ' (linha ' + evento.lineno + ')' : '');
       caixa.hidden = false;
     });
+    // Guarda o convite de instalar do navegador para o botao Instalar do menu.
+    window.pedidoInstalar = null;
+    window.addEventListener('beforeinstallprompt', function (evento) {
+      evento.preventDefault();
+      window.pedidoInstalar = evento;
+    });
+    // Deixa o jogo abrir sem internet depois da primeira visita.
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function () {});
+      });
+    }
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.90/dist/phaser.min.js"></script>
-  <script src="GameV2.js?v=casspet-20"></script>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.90/dist/phaser.min.js" crossorigin="anonymous"></script>
+  <script src="GameV2.js?v=casspet-27"></script>
 </body>
 </html>

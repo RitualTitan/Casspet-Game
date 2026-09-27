@@ -40,6 +40,11 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   (previa jogavel e/ou Pull Request) e so vai para a `main` depois que o usuario aprovar.
 - Quando o usuario pedir para "subir no git para jogar" algo ja aprovado, e merge + push na `main`.
 - A cada mudanca no jogo, troque o `?v=` do `GameV2.js` no `index.html`, para o celular nao usar script em cache.
+- **Instalar como app (PWA):** `manifest.webmanifest` (tela cheia, retrato, icones em `assets/icone/`, feitos da
+  arte do menu com o gato parado) e `sw.js`, que guarda os arquivos para abrir sem internet. O `sw.js` busca
+  sempre a rede primeiro e so usa o guardado quando ela falha, entao atualizacoes chegam na hora. Botao
+  "Instalar" no alto do menu: no Android abre o convite do navegador (`window.pedidoInstalar`); no iPhone
+  explica Compartilhar > Adicionar a Tela de Inicio. Some quando o jogo ja esta aberto como app.
 
 ## Como rodar e validar
 
@@ -86,6 +91,28 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   as vezes param no meio e disparam, ficam mais frequentes e vem em dupla, para o jogador nao decorar o padrao. Enfeites atras dos troncos
   (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
   do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
+- **Poderes e balanco desligados:** o usuario aprovou o resto do pacote, mas ainda vai decidir sobre os poderes, e o
+  balanco de cipo precisa de acerto. Os dois ficam no codigo e desligados pelos interruptores `ativarPoderes` e
+  `ativarBalanco` (sem poderes, a missao "Pegue N poderes" sai do sorteio). So ligue quando o usuario aprovar.
+- **Poderes** (`poderes`, `criarItemPoder`, `ativarPoder`, `atualizarPoderes`): bolhas no meio de alguns troncos,
+  a primeira perto de `troncoPoderes` e depois a cada 22 a 34. **Ima** puxa os granulados perto (`raioIma`),
+  **escudo** segura uma bicada (so aparece depois de `troncoPassaros`) e **pacote furado** faz o pacote do
+  guaxinim vazar: todo tronco a frente ganha granulado. Icones redondos embaixo dos troncos, com anel de tempo.
+  O tempo corre no `update`, entao para na pausa.
+- **Combo** (`niveisCombo`, `contarCombo`, `quebrarCombo`): granulados seguidos valem x2 (5) e x3 (10). Quebra
+  com uma bicada ou quando o gato pousa num tronco novo deixando para tras o granulado de um tronco ja pisado
+  (os pulados pela mola ou pelo super pulo nao contam). Etiqueta embaixo da placa de granulados.
+- **Troncos especiais** (nunca rachados): **mola** (`fx_mola`, `pularNaMola`, `impulsoMola`) a partir de
+  `troncoMola`, a cada 12 a 20; **balanco** pendurado em dois cipos (`desenharCipos`, movimento `tipo: 'balanco'`)
+  a partir de `troncoBalanco`, a cada 14 a 22. O cipo sobe reto ate passar do alto da tela (o usuario viu ele
+  terminar no meio do caminho ao subir).
+
+- **Primeira partida guiada:** na primeira partida do aparelho uma mao (indicador, nunca o dedo do meio no centro
+  da palma) arrasta de um lado para o outro na metade de baixo com "Arraste o dedo aqui embaixo" e some
+  quando o jogador arrasta (`mostrarMaoTutorial`). Depois, plaquinhas de madeira embaixo do placar explicam
+  cada novidade na primeira vez que ela aparece (`dicasJogo`: tronco rachado, passaro, bolha de poder, mola,
+  combo), uma por vez e so uma vez por aparelho (`chaveDicas`). A mao e temporaria: o controle continua sem
+  marcacao visivel.
 
 ## Menus
 
@@ -93,11 +120,17 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   brilho no letreiro e no INICIAR, faz estrelinhas e escurece a placa tocada. Borboletas voam pelo menu.
 - Placar (`criarHud`): troncos numa etiqueta de madeira com icone de tronco cortado, granulados numa placa
   no meio (o granulado pego voa ate ela, `voarParaPlacar`) e pausa/som em botoes redondos de madeira.
+- Musica, efeitos e vibracao ligam e desligam separados (`criarOpcoesSom`, `som.opcoes`, `chaveOpcoes`), na pausa
+  e em CONFIGURACOES; o botao de som do placar continua desligando tudo. A vibracao so aparece onde o aparelho
+  vibra (no iPhone nao) e vale mesmo com o som desligado.
 - Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, COMPARTILHAR, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
 - Botoes dentro de paineis fixos precisam de `setScrollFactor(0)` no proprio botao, senao o toque segue a camera.
 - `scene.restart()` sem dados repete os do ultimo reinicio; `voltarAoMenu` passa `{ reiniciar: false }`.
 - `index.html` mostra uma caixa "O jogo travou" com o motivo e RECARREGAR se acontecer um erro de script
-  (o usuario relatou um travamento no JOGAR DE NOVO que nao foi reproduzido).
+  (o usuario relatou um travamento no JOGAR DE NOVO que nao foi reproduzido). O Phaser carrega com
+  `crossorigin`, para a caixa mostrar o erro de verdade em vez de "Script error.".
+- Ao reiniciar a cena, zere no `create` toda referencia a objeto da partida anterior antes de usa-la: o MENU
+  e o JOGAR DE NOVO travavam depois de perder no espaco porque o ceu religava as folhas ja destruidas.
 
 ## Missoes e compartilhar
 
