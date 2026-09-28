@@ -53,10 +53,15 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 
 ## Cenario, chao e audio
 
-- O cenario **nao** carrega o SVG de 12 MB. O jogo usa `assets/cenario/cenario-N.webp`, geradas por
-  `ferramentas/gerar-cenario.html` a partir de `assets/Cenario Jogo 1.svg`. A ferramenta fecha as frestas
-  entre formas do SVG e suaviza as emendas dos blocos repetidos do tronco. **Se o SVG mudar, gere as
-  faixas de novo.** As medidas das faixas (`texturaCenario`) precisam bater entre a ferramenta e o jogo.
+- **Cenario (aprovado pelo usuario):** feito com imagens geradas por IA pelo usuario (pe da arvore, dois
+  trechos do tronco, copa, nuvens e galhos, em `arte-cenario-ia/recebidas/`, a partir dos prompts e guias de
+  `arte-cenario-ia/`). `ferramentas/montar-cenario-ia.html` tira o fundo magenta, deixa os troncos com a mesma
+  largura (315 px) e no mesmo eixo, empilha as pecas com emendas suaves e gera `assets/cenario/cenario-N.webp`
+  (1024 x 12264 em 6 faixas, sem esticar). **Se uma imagem mudar, monte as faixas de novo.** As medidas
+  (`texturaCenario`) precisam bater entre a ferramenta e o jogo; a copa sai da tela em `troncoFimCopa` (157).
+- Cenario antigo: `assets/Cenario Jogo 1.svg` (12 MB) e `ferramentas/gerar-cenario.html`, que gerava as faixas
+  antigas (1399 px, esticadas 15%). `ferramentas/desenhar-cenario.html` foi a primeira tentativa do cenario
+  novo, desenhada em codigo e recusada; serviu para os guias. Nenhum dos dois e usado pelo jogo.
 - Chao: `assets/chao.webp` (versao reduzida de `assets/chao-original.webp`). `alturaChao` define a altura
   da grama e `superficieChao` a linha da grama dentro da imagem.
 - Guaxinim: `assets/guaxinim.png` (recorte transparente de `guaxinim-original.webp`); o pacote que ele
@@ -75,7 +80,7 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 - A textura `introducao` (arte do menu) tem recortes (`madeiraLoja`); ao usar a arte inteira, passe o
   frame `'__BASE'`, senao o Phaser usa o primeiro recorte.
 - Sons e musica sao sintetizados com Web Audio (objetos `som`, `musica` e `trilha`), sem arquivos de audio.
-- **Ceu:** as faixas do cenario nao tem ceu (a ferramenta tira o degrade do SVG e deixa o fundo transparente).
+- **Ceu:** as faixas do cenario nao tem ceu (a ferramenta tira o fundo e deixa transparente).
   O ceu e desenhado no codigo (`criarCeu`/`atualizarCeu`) e muda com a altura alcancada em troncos (`fasesCeu`):
   dia, fim de tarde (30), por do sol (65), noite (95) e espaco (150), com sol que se poe, estrelas, estrelas
   cadentes, lua, Terra e planeta com anel; a luz do cenario acompanha. Aprovado pelo usuario. As fases evitam
