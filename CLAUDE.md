@@ -135,8 +135,9 @@ jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma
   passar voando?"), poe um nariz de palhaco no gato (buzina "FON FON"), leva os granulados e os troncos do placar
   para o pacote ("Valeu pelos granulados, trapaceiro!") e vai embora; o gato cai. Derrota com o carimbo
   "TRAPACA DETECTADA", recorde zerado e nada no cofrinho; missoes nao contam.
-- **Nariz de palhaco** (`chavePerfil`, `criarNariz`, `tamanhoNariz`): fica no gato da partida e no gato da pintura
-  do menu, com "Recorde: 0 · Trapaceiro". O cartao de compartilhar sai com o nariz, o carimbo "TRAPACEIRO" e
+- **Nariz de palhaco** (`chavePerfil`, `criarNariz`, `tamanhoNariz`, `narizDaPose`): fica no bicho da partida (no gato
+  pelos olhos de `cabecaGato`; nos outros, pelo focinho em `narizBichos`, que precisa ganhar cada bicho novo com arte)
+  e no gato da pintura do menu, com "Recorde: 0 · Trapaceiro". O cartao de compartilhar sai com o nariz, o carimbo "TRAPACEIRO" e
   "Tentei trapacear e o guaxinim me pegou!". Sai sozinho depois de `troncosPerdao` (50) troncos numa partida limpa
   (`devolverNariz`), o que tambem desfaz um alarme falso.
 
