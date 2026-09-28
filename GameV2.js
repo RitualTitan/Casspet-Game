@@ -272,6 +272,14 @@ const segredoAssinatura = 'sq_znaou4KjmF3BozPrHnc5kjDYWqB7h';
 // Cofrinho sem assinatura (salvo por uma versao antiga) so e aceito ate este valor, somando o
 // saldo e o preco do que ja foi comprado. A loja e nova; acima disso e cofrinho escrito a mao.
 const limiteCofrinhoAntigo = 10000;
+// Nenhum jogador junta isso de verdade (uma partida muito boa rende algumas centenas); acima disso, mesmo
+// assinado pelo proprio jogo, o cofrinho veio de uma partida trapaceada de antes do limite por tempo.
+const limiteCofrinho = 2000000;
+// O placar e limitado pelo tempo real de partida: na velocidade maxima o gato pousa em ~1,7 troncos por
+// segundo e cada tronco rende no maximo uns 3 granulados (combo x3), mais os sustos no guaxinim.
+const troncosPorSegundo = 2.2;
+const granuladosPorTronco = 3;
+const granuladosPorSegundo = 0.6;
 
 // Hash de 53 bits (cyrb53), rapido e sem depender de nada do navegador.
 function assinar(chave, texto) {
@@ -298,7 +306,9 @@ function lerArmazenado(chave, padrao) {
         const salvo = JSON.parse(valor);
         if (!chavesAssinadas.includes(chave)) return salvo;
         if (estaAssinado(salvo)) {
-            if (salvo.assinatura === assinar(chave, JSON.stringify(salvo.dados))) return salvo.dados;
+            const valido = salvo.assinatura === assinar(chave, JSON.stringify(salvo.dados)) &&
+                !(chave === chaveLoja && !(valorLoja(salvo.dados) <= limiteCofrinho));
+            if (valido) return salvo.dados;
             pegarAdulterado(chave);
             return padrao;
         }
@@ -447,8 +457,9 @@ function lerRecorde() {
         altura: Math.round(Number(salvo.altura) || 0)
     };
     if (!recorde.granulados && !recorde.troncos && !recorde.altura) return recorde;
-    // Lacre que nao bate e recorde mexido a mao; os antigos, sem lacre, so passam se forem possiveis.
-    const adulterado = salvo.selo ? salvo.selo !== selarRecorde(recorde) : recordeImpossivel(recorde);
+    // Lacre que nao bate e recorde mexido a mao; lacrado ou nao, o recorde tambem precisa ser possivel.
+    const adulterado = (salvo.selo && salvo.selo !== selarRecorde(recorde)) ||
+        recordeImpossivel(recorde, salvo.troncos === undefined);
     if (adulterado) {
         marcarTrapaceiro();
         const zerado = { granulados: 0, troncos: 0, altura: 0 };
@@ -474,10 +485,24 @@ function selarRecorde(recorde) {
 
 // Quem sobe voando passa muitos troncos sem pousar neles: a altura (ou os granulados) fica muito
 // acima do que os troncos permitem. Os limites tem folga de sobra para o super pulo e a mola.
-function recordeImpossivel(recorde) {
-    // Versoes antigas nao guardavam os troncos; sem eles nao da para comparar.
-    if (!recorde.troncos) return false;
-    return recorde.altura > recorde.troncos * 360 + 3000 || recorde.granulados > recorde.troncos * 3 + 200;
+function recordeImpossivel(recorde, semTroncos = false) {
+    const numeros = [recorde.granulados, recorde.troncos, recorde.altura];
+    if (numeros.some((numero) => !Number.isFinite(numero) || numero < 0 || numero > 1e7)) return true;
+    // Versoes muito antigas nao guardavam os troncos; sem eles nao da para comparar.
+    if (semTroncos) return false;
+    return recorde.altura > recorde.troncos * 360 + 3000 ||
+        recorde.granulados > recorde.troncos * granuladosPorTronco + 200;
+}
+
+// O placar da partida cabe no tempo real que ela durou? Pega quem muda o valor dos granulados ou soma
+// troncos por fora, mesmo mantendo o espelho do vigia em dia.
+function placarImpossivel(cena) {
+    const tempo = cena.vigia.tempo;
+    const numeros = [cena.totalMoedas, cena.contador, cena.alturaMax];
+    if (numeros.some((numero) => !Number.isFinite(numero))) return true;
+    return cena.contador > tempo * troncosPorSegundo + 5 ||
+        cena.totalMoedas > cena.contador * granuladosPorTronco + tempo * granuladosPorSegundo + 30 ||
+        cena.alturaMax > cena.contador * 360 + 3000;
 }
 
 function temNariz() {
@@ -914,7 +939,8 @@ function create(data = {}) {
     this.proximaMola = troncoMola + Phaser.Math.Between(0, 6);
     this.dicasVistas = lerArmazenado(chaveDicas, []);
     // Vigia da partida: confere placar, gravidade e subida; trapaca vira a peca do guaxinim.
-    this.vigia = { amostras: [], moedas: 0, troncos: 0 };
+    // tempo: segundos de relogio real com a partida rodando (sem pausa), base do limite do placar.
+    this.vigia = { amostras: [], moedas: 0, troncos: 0, tempo: 0, ultimoQuadro: 0 };
     this.trapaca = null;
     this.pegandoTrapaceiro = false;
     this.filaDicas = [];
@@ -2098,6 +2124,7 @@ function alternarPausa(cena, pausar = !cena.pausado) {
     if (!pausar) {
         cena.telaPausa.destroy();
         cena.telaPausa = null;
+        cena.vigia.ultimoQuadro = 0;
         cena.physics.resume();
         cena.tweens.resumeAll();
         musica.tocar(false);
@@ -2802,6 +2829,8 @@ function provocarGuaxinim(cena) {
 
 function mostrarMorte(cena) {
     if (cena.morreu) return;
+    // Ultima conferencia antes de salvar: placar que nao cabe no tempo de partida nao vira recorde.
+    if (!cena.trapaca && cena.vigia && placarImpossivel(cena)) detectarTrapaca(cena, 'tempo');
     cena.morreu = true;
     cena.physics.pause();
     musica.parar(0.04);
@@ -4517,12 +4546,17 @@ function vestirGato(cena, gato, loja = cena.loja) {
 // folga de sobra para o granulado dourado e a mola; o relogio do jogo nunca anda mais rapido que o real.
 function vigiarPartida(cena) {
     if (cena.trapaca) return;
+    // Soma o relogio real; um quadro longo (aba em segundo plano, engasgo) conta no maximo 0,25 s.
+    const relogio = performance.now();
+    if (cena.vigia.ultimoQuadro) cena.vigia.tempo += Math.min(0.25, (relogio - cena.vigia.ultimoQuadro) / 1000);
+    cena.vigia.ultimoQuadro = relogio;
     const velocidade = cena.velocidadeJogo;
     const vigia = cena.vigia;
     let motivo = null;
     if (Math.abs(cena.physics.world.gravity.y - gravidadeBase * velocidade ** 2) > 1) motivo = 'gravidade';
     else if (cena.caixa.body.velocity.y < -(650 * velocidade + 80)) motivo = 'velocidade';
     else if (cena.totalMoedas !== vigia.moedas || cena.contador !== vigia.troncos) motivo = 'placar';
+    else if (placarImpossivel(cena)) motivo = 'tempo';
     else {
         const agora = performance.now();
         const amostras = vigia.amostras;
