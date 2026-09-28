@@ -268,7 +268,7 @@ function medirAlturaTela() {
 // jogo). Quem editar esses valores pelo navegador quebra a assinatura: o dado e jogado fora e o
 // trapaceiro ganha o nariz de palhaco. Nao segura quem copiar a assinatura do codigo publico.
 const chavesAssinadas = [chaveRecorde, chaveLoja, chaveMissoes];
-const segredoAssinatura = 'casspet-granulando-cofrinho';
+const segredoAssinatura = 'sq_znaou4KjmF3BozPrHnc5kjDYWqB7h';
 // Cofrinho sem assinatura (salvo por uma versao antiga) so e aceito ate este valor, somando o
 // saldo e o preco do que ja foi comprado. A loja e nova; acima disso e cofrinho escrito a mao.
 const limiteCofrinhoAntigo = 10000;
