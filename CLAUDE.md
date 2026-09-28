@@ -34,8 +34,16 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 
 ## Publicacao
 
-- Repositorio `RitualTitan/Casspet-Game`, branch `main`. O GitHub Pages publica a `main` em
-  https://ritualtitan.github.io/Casspet-Game/ (leva ~1 min).
+- **Dois repositorios (decisao do usuario, para ninguem copiar o codigo):** o codigo fica no privado
+  `RitualTitan/Casspet-Game-codigo`, branch `main`. A cada push na `main` dele, a acao
+  `.github/workflows/publicar.yml` roda `ferramentas/publicar.js`, que embaralha o `GameV2.js`
+  (javascript-obfuscator) e junta so o que o jogo carrega, e manda tudo para o publico `RitualTitan/Casspet-Game`
+  (um unico commit, sempre substituido). O GitHub Pages publica esse em https://ritualtitan.github.io/Casspet-Game/
+  (leva ~2 min). **Nunca edite o repositorio publico.** A acao precisa do segredo `TOKEN_SITE` (token com
+  escrita so no publico); sem ele, nao publica nada.
+- Imagem nova carregada pelo jogo: fica numa das pastas de `pastasSite` (`ferramentas/publicar.js`) ou aparece
+  inteira entre aspas no `GameV2.js` (`'assets/x.webp'`), senao nao vai para o site. Depois de mudar o jogo,
+  teste tambem a versao embaralhada: `node ferramentas/publicar.js` e sirva a pasta `site/`.
 - **Nunca mexa direto na `main`.** Toda feature ou teste e feita num branch proprio, testada, apresentada
   (previa jogavel e/ou Pull Request) e so vai para a `main` depois que o usuario aprovar.
 - Quando o usuario pedir para "subir no git para jogar" algo ja aprovado, e merge + push na `main`.
@@ -136,6 +144,13 @@ jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma
   honesto leva a peca.
 - **Recorde lacrado** (`salvarRecorde`, `selarRecorde`): lacre que nao bate (editado a mao) ou recorde antigo
   impossivel (`recordeImpossivel`: altura ou granulados muito acima do que os troncos permitem) contam como trapaca.
+- **Dados assinados** (`chavesAssinadas`: recorde, cofrinho/loja e missoes): salvos como `{ dados, assinatura }`
+  (`assinar`, hash cyrb53 com `segredoAssinatura`). Salve e leia sempre por `salvarArmazenado`/`lerArmazenado`.
+  Assinatura que nao bate (editado a mao) apaga o dado e poe o nariz (`pegarAdulterado`). Dado sem assinatura vem
+  de versao antiga ou foi escrito a mao: o recorde passa pelo lacre, o cofrinho so ate `limiteCofrinhoAntigo`
+  (saldo + preco do comprado, `valorLoja`; acima disso e nariz) e as missoes do dia recomecam. Tudo e conferido
+  ao abrir o jogo, antes do menu. O usuario sabe que isso so barra a edicao casual: quem copia a assinatura do
+  codigo publico passa; protecao de verdade (ranking, premio) so com um servidor conferindo as partidas.
 - **A peca** (`detectarTrapaca` e, 2,2 s depois, `pregarPeca`): o guaxinim chega voando rindo ("Achou que ia me
   passar voando?"), poe um nariz de palhaco no gato (buzina "FON FON"), leva os granulados e os troncos do placar
   para o pacote ("Valeu pelos granulados, trapaceiro!") e vai embora; o gato cai. Derrota com o carimbo
@@ -179,6 +194,7 @@ jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma
 - Visual de madeira: `texturaMadeira` monta tabuas com a madeira lisa das placas da arte; cartoes entram em
   sequencia, a compra solta granulados e o item em uso respira.
 - Os granulados de cada partida vao para o cofrinho (`chaveLoja`, salvo so no aparelho, como o recorde).
+- O cofrinho, o recorde e as missoes vao assinados (ver **Dados assinados** em Anti-trapaca).
 - `itensLoja`: **bichos** (o foco, decisao do usuario: animais que tambem usam o granulado - coelho, hamster,
   passaro, porquinho-da-india, iguana), **pelagens** (tint sobre o gato; so escurece ou muda o tom) e
   **acessorios** desenhados no codigo (`ac_*`), presos na cabeca por `cabecaGato` em cada uma das 4 poses.

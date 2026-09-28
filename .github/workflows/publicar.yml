@@ -1,0 +1,49 @@
+# Publica o jogo no repositorio publico RitualTitan/Casspet-Game (o que o GitHub Pages mostra) com o
+# GameV2.js embaralhado e so as imagens que o jogo usa. Roda a cada push na main do repositorio
+# privado do codigo; tambem da para rodar na mao pela aba Actions.
+# Precisa do segredo TOKEN_SITE: um token do GitHub com permissao de escrita (Contents) so no
+# repositorio publico. Sem ele, a acao termina sem publicar nada.
+name: Publicar o jogo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publicar
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    # Nunca roda no proprio repositorio publico (ele nao tem o codigo de verdade).
+    if: github.repository != 'RitualTitan/Casspet-Game'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Embaralhar o codigo e montar o site
+        run: |
+          npm install --no-save --no-package-lock javascript-obfuscator@4.2.2
+          node ferramentas/publicar.js
+
+      - name: Enviar para o repositorio publico
+        env:
+          TOKEN_SITE: ${{ secrets.TOKEN_SITE }}
+        run: |
+          if [ -z "$TOKEN_SITE" ]; then
+            echo "::notice::Sem o segredo TOKEN_SITE: nada foi publicado."
+            exit 0
+          fi
+          cd site
+          git init -q -b main
+          git config user.name "Publicador Casspet"
+          git config user.email "publicador@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publica a versao ${GITHUB_SHA::7}"
+          # Sempre um unico commit: o repositorio publico nao guarda historico do codigo.
+          git push -q -f "https://RitualTitan:${TOKEN_SITE}@github.com/RitualTitan/Casspet-Game.git" main

@@ -264,23 +264,91 @@ function medirAlturaTela() {
     return Math.round(Phaser.Math.Clamp(360 * altura / largura, 640, 860));
 }
 
+// Recorde, cofrinho e missoes sao salvos com uma assinatura (hash dos dados com uma chave do
+// jogo). Quem editar esses valores pelo navegador quebra a assinatura: o dado e jogado fora e o
+// trapaceiro ganha o nariz de palhaco. Nao segura quem copiar a assinatura do codigo publico.
+const chavesAssinadas = [chaveRecorde, chaveLoja, chaveMissoes];
+const segredoAssinatura = 'sq_znaou4KjmF3BozPrHnc5kjDYWqB7h';
+// Cofrinho sem assinatura (salvo por uma versao antiga) so e aceito ate este valor, somando o
+// saldo e o preco do que ja foi comprado. A loja e nova; acima disso e cofrinho escrito a mao.
+const limiteCofrinhoAntigo = 10000;
+
+// Hash de 53 bits (cyrb53), rapido e sem depender de nada do navegador.
+function assinar(chave, texto) {
+    const entrada = segredoAssinatura + '|' + chave + '|' + texto;
+    let h1 = 0xdeadbeef ^ entrada.length, h2 = 0x41c6ce57 ^ entrada.length;
+    for (let i = 0; i < entrada.length; i++) {
+        const c = entrada.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 2654435761);
+        h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+const estaAssinado = (salvo) => salvo !== null && typeof salvo === 'object' &&
+    'assinatura' in salvo && 'dados' in salvo;
+
 // O armazenamento pode falhar em aba anonima; o jogo segue sem salvar.
 function lerArmazenado(chave, padrao) {
     try {
         const valor = localStorage.getItem(chave);
-        return valor === null ? padrao : JSON.parse(valor);
+        if (valor === null) return padrao;
+        const salvo = JSON.parse(valor);
+        if (!chavesAssinadas.includes(chave)) return salvo;
+        if (estaAssinado(salvo)) {
+            if (salvo.assinatura === assinar(chave, JSON.stringify(salvo.dados))) return salvo.dados;
+            pegarAdulterado(chave);
+            return padrao;
+        }
+        // Sem assinatura: veio de uma versao antiga do jogo ou foi escrito a mao. As missoes do dia
+        // recomecam; o recorde passa pelo lacre de lerRecorde; o cofrinho, se for possivel.
+        if (chave === chaveMissoes) {
+            localStorage.removeItem(chave);
+            return padrao;
+        }
+        if (chave === chaveLoja && valorLoja(salvo) > limiteCofrinhoAntigo) {
+            pegarAdulterado(chave);
+            return padrao;
+        }
+        salvarArmazenado(chave, salvo);
+        return salvo;
     } catch (erro) {
         return padrao;
     }
 }
 
+// Dado mexido a mao: some, e quem mexeu fica com o nariz de palhaco.
+function pegarAdulterado(chave) {
+    localStorage.removeItem(chave);
+    marcarTrapaceiro();
+}
+
+// Saldo mais o preco de tudo que ja foi comprado.
+function valorLoja(salvo) {
+    const comprados = salvo && Array.isArray(salvo.comprados) ? salvo.comprados : [];
+    let valor = Math.max(0, Number(salvo && salvo.saldo) || 0);
+    for (const grupo of Object.values(itensLoja)) {
+        for (const item of grupo) if (comprados.includes(item.id)) valor += item.preco;
+    }
+    return valor;
+}
+
 function salvarArmazenado(chave, valor) {
     try {
-        localStorage.setItem(chave, JSON.stringify(valor));
+        const texto = chavesAssinadas.includes(chave)
+            ? JSON.stringify({ dados: valor, assinatura: assinar(chave, JSON.stringify(valor)) })
+            : JSON.stringify(valor);
+        localStorage.setItem(chave, texto);
     } catch (erro) {
         // Sem armazenamento disponivel.
     }
 }
+
+// Confere tudo ao abrir o jogo, antes do menu: o que veio de versoes antigas passa a ir assinado
+// (quem ja jogava nao perde nada) e o que foi mexido ja poe o nariz de palhaco na pintura do menu.
+for (const chave of chavesAssinadas) lerArmazenado(chave, null);
 
 function diaDeHoje() {
     const hoje = new Date();

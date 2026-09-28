@@ -38,6 +38,7 @@ A tela se ajusta ao formato do celular: o mundo tem sempre 360 de largura e a al
 - `assets/cenario/`: faixas WebP do cenario, montadas com as imagens geradas por IA.
 - `arte-cenario-ia/`: prompts, guias e as imagens de IA (`recebidas/`) que formam o cenario.
 - `ferramentas/montar-cenario-ia.html`: monta as faixas do cenario a partir dessas imagens.
+- `ferramentas/publicar.js` e `.github/workflows/publicar.yml`: a cada push na `main`, embaralham o `GameV2.js` e publicam o jogo no repositorio publico `RitualTitan/Casspet-Game`, que o GitHub Pages mostra.
 - `ferramentas/gerar-cenario.html` e `ferramentas/desenhar-cenario.html`: cenario antigo (do SVG) e primeira tentativa do novo; o jogo nao usa.
 
 O cenario e feito com imagens geradas por IA (pe da arvore, dois trechos do tronco, copa, nuvens e galhos, em `arte-cenario-ia/recebidas/`). O jogo carrega faixas WebP ja montadas em `assets/cenario/` (cerca de 900 KB no total), o que deixa o carregamento rapido no celular. A arte tem 1024 x 12264 px em 6 faixas, com margens de filtragem que ficam fora da area desenhada. Ao montar, a ferramenta tira o fundo magenta (o ceu fica transparente), deixa todos os troncos com a mesma largura e no mesmo eixo e suaviza as emendas entre as pecas. **Sempre que uma imagem mudar**, abra `http://localhost:8000/ferramentas/montar-cenario-ia.html` com o servidor rodando, clique em "Montar faixas" e salve os arquivos baixados em `assets/cenario/`. A camera revela o cenario durante a subida.
