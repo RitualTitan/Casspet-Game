@@ -212,6 +212,14 @@ const cabecaGato = {
     pulando: { topo: [1020, 300], olhos: [1212, 640], pescoco: [1160, 1060], largura: 1060, angulo: -10 },
     caindo: { topo: [1020, 420], olhos: [1152, 728], pescoco: [1140, 1072], largura: 920, angulo: -8 }
 };
+// Focinho (na grade de 2048) e largura da cabeca dos outros bichos, para o nariz de palhaco do trapaceiro.
+// Um bicho novo com arte precisa entrar aqui, senao o nariz some quando ele e o escolhido.
+const narizBichos = {
+    coelho_mascote_1: { ponto: [1050, 912], largura: 760 },
+    coelho_quasePulando: { ponto: [1551, 1121], largura: 760 },
+    coelho_pulando: { ponto: [1280, 778], largura: 720 },
+    coelho_caindo: { ponto: [1085, 882], largura: 760 }
+};
 // Ponto de apoio, tamanho (em larguras de cabeca) e origem da textura de cada acessorio.
 const encaixeAcessorio = {
     bone: { ponto: 'topo', largura: 1.15, origem: [0.42, 0.78] },
@@ -4087,10 +4095,10 @@ function gerarCartaoResultado(cena) {
     }
     // O trapaceiro sai de nariz de palhaco e com um carimbo na foto.
     const palhaco = temNariz();
-    if (palhaco && ehGato) {
-        const cabeca = cabecaGato.mascote_1;
-        const ponto = pontoDoNariz(cabeca);
-        const diametro = tamanhoNariz * cabeca.largura / 2048 * lado / 27 * 30;
+    const narizCartao = palhaco && narizDaPose(texturaPose(cena, 'mascote_1', loja));
+    if (narizCartao) {
+        const ponto = narizCartao.ponto;
+        const diametro = tamanhoNariz * narizCartao.largura / 2048 * lado / 27 * 30;
         ctx.drawImage(cena.textures.get('ac_palhaco').getSourceImage(), xFigura + ponto[0] / 2048 * lado - diametro / 2,
             yFigura + ponto[1] / 2048 * lado - diametro / 2, diametro, diametro);
     }
@@ -4102,10 +4110,10 @@ function gerarCartaoResultado(cena) {
         ctx.strokeStyle = '#fff4d6';
         ctx.lineWidth = 8;
         ctx.beginPath();
-        ctx.roundRect(-165, -46, 330, 92, 16);
+        ctx.roundRect(-175, -46, 350, 92, 16);
         ctx.fill();
         ctx.stroke();
-        ctx.font = 'bold 50px "Arial Black", Arial, sans-serif';
+        ctx.font = 'bold 44px "Arial Black", Arial, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffffff';
@@ -4416,14 +4424,14 @@ function vestirGato(cena, gato, loja = cena.loja) {
     gato.acessorio = null;
     if (gato.nariz) gato.nariz.destroy();
     gato.nariz = null;
+    // O nariz de palhaco do trapaceiro vale para qualquer bicho (so no da partida, nao nas vitrines).
+    if (gato === cena.gato && temNariz()) criarNariz(cena, gato);
     // Pelagens e acessorios sao feitos para o gato; os outros bichos ficam como sao.
     if (loja.equipado.bichos !== 'gato') {
         gato.clearTint();
         return;
     }
     gato.setTint(itemEquipado(loja, 'pelagens').cor);
-    // O nariz de palhaco do trapaceiro nao sai com a roupa (so no gato da partida, nao nas vitrines).
-    if (gato === cena.gato && temNariz()) criarNariz(cena, gato);
     const acessorio = itemEquipado(loja, 'acessorios').id;
     if (acessorio === 'nenhum') return;
     const encaixe = encaixeAcessorio[acessorio];
@@ -4539,8 +4547,7 @@ function colocarNarizPalhaco(cena) {
     som.buzina();
     const gato = cena.gato;
     mostrarPopup(cena, gato.x, gato.y - 96, 'FON FON!', '#ff6b6b', 18);
-    // Os outros bichos nao tem o mapa da cabeca; o nariz fica so no gato.
-    if (cena.loja.equipado.bichos !== 'gato' || gato.nariz) return;
+    if (gato.nariz) return;
     criarNariz(cena, gato);
     gato.nariz.escalaExtra = 0;
     cena.tweens.add({ targets: gato.nariz, escalaExtra: 1, duration: 450, ease: 'Back.easeOut', easeParams: [3] });
@@ -4622,20 +4629,31 @@ function criarNariz(cena, gato) {
     posicionarNariz(gato);
 }
 
-function pontoDoNariz(cabeca) {
+// Onde fica o nariz em cada pose: no gato, um pouco abaixo do meio dos olhos; nos outros bichos, no focinho.
+function narizDaPose(chave) {
+    if (narizBichos[chave]) return narizBichos[chave];
+    const cabeca = cabecaGato[chave];
+    if (!cabeca) return null;
     const giro = Phaser.Math.DegToRad(cabeca.angulo);
     const abaixo = cabeca.largura * 0.09;
-    return [cabeca.olhos[0] - abaixo * Math.sin(giro), cabeca.olhos[1] + abaixo * Math.cos(giro)];
+    return {
+        ponto: [cabeca.olhos[0] - abaixo * Math.sin(giro), cabeca.olhos[1] + abaixo * Math.cos(giro)],
+        largura: cabeca.largura
+    };
 }
 
 function posicionarNariz(gato) {
     const nariz = gato.nariz;
     if (!nariz) return;
-    const cabeca = cabecaGato[gato.texture.key] || cabecaGato.mascote_1;
-    const posicao = pontoNaTela(gato, pontoDoNariz(cabeca));
+    const pose = narizDaPose(gato.texture.key);
+    if (!pose) {
+        nariz.setVisible(false);
+        return;
+    }
+    const posicao = pontoNaTela(gato, pose.ponto);
     const k = gato.frame.width / 2048;
     // A textura tem 90 px para uma bolinha de 27; o nariz fica com tamanhoNariz da largura da cabeca.
-    const escala = tamanhoNariz * cabeca.largura * k * Math.abs(gato.scaleX) / 81 * nariz.escalaExtra;
+    const escala = tamanhoNariz * pose.largura * k * Math.abs(gato.scaleX) / 81 * nariz.escalaExtra;
     nariz.setPosition(posicao.x, posicao.y).setScale(escala).setAlpha(gato.alpha).setVisible(gato.visible);
 }
 
