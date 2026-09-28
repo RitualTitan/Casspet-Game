@@ -34,8 +34,16 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 
 ## Publicacao
 
-- Repositorio `RitualTitan/Casspet-Game`, branch `main`. O GitHub Pages publica a `main` em
-  https://ritualtitan.github.io/Casspet-Game/ (leva ~1 min).
+- **Dois repositorios (decisao do usuario, para ninguem copiar o codigo):** o codigo fica no privado
+  `RitualTitan/Casspet-Game-codigo`, branch `main`. A cada push na `main` dele, a acao
+  `.github/workflows/publicar.yml` roda `ferramentas/publicar.js`, que embaralha o `GameV2.js`
+  (javascript-obfuscator) e junta so o que o jogo carrega, e manda tudo para o publico `RitualTitan/Casspet-Game`
+  (um unico commit, sempre substituido). O GitHub Pages publica esse em https://ritualtitan.github.io/Casspet-Game/
+  (leva ~2 min). **Nunca edite o repositorio publico.** A acao precisa do segredo `TOKEN_SITE` (token com
+  escrita so no publico); sem ele, nao publica nada.
+- Imagem nova carregada pelo jogo: fica numa das pastas de `pastasSite` (`ferramentas/publicar.js`) ou aparece
+  inteira entre aspas no `GameV2.js` (`'assets/x.webp'`), senao nao vai para o site. Depois de mudar o jogo,
+  teste tambem a versao embaralhada: `node ferramentas/publicar.js` e sirva a pasta `site/`.
 - **Nunca mexa direto na `main`.** Toda feature ou teste e feita num branch proprio, testada, apresentada
   (previa jogavel e/ou Pull Request) e so vai para a `main` depois que o usuario aprovar.
 - Quando o usuario pedir para "subir no git para jogar" algo ja aprovado, e merge + push na `main`.
