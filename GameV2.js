@@ -1,14 +1,22 @@
 
-// Limita o custo de preenchimento no celular, preservando o mundo de 360 de largura.
 const telaDeToque = window.matchMedia('(pointer: coarse)').matches;
-const escalaRenderizacao = telaDeToque ? 1.5 : 2;
 // A altura do mundo acompanha o formato da tela: 640 em 9:16 e ate 860 nos
 // celulares mais altos. Telas mais largas que 9:16 ganham faixas nas laterais.
 const alturaTela = medirAlturaTela();
+// Desenha perto da resolucao real da tela (pixels do aparelho), para os contornos ficarem lisos
+// em vez de esticados e serrilhados. O teto de 2,5 limita o custo de preenchimento no celular.
+const escalaRenderizacao = medirEscalaRenderizacao();
+// As poses do gato e dos bichos tem 512 x 512; as posicoes em cabecaGato estao numa grade de 2048.
+const tamanhoPose = 512;
+// Largura da textura do granulado (assets/granulado.webp e o dourado, carregado nesse tamanho).
+const larguraGranulado = 256;
+// As tabuas de madeira sao desenhadas em 3x e exibidas com escala 1/3, para ficarem nitidas.
+const escalaMadeira = 3;
 // "1 granulado", "2 granulados".
 const contar = (quantidade, palavra) => `${quantidade} ${palavra}${quantidade === 1 ? '' : 's'}`;
 const config = {
     type: Phaser.AUTO,
+    render: { mipmapFilter: 'LINEAR_MIPMAP_LINEAR' },
     parent: 'jogo',
     width: 360,
     height: alturaTela,
@@ -45,14 +53,15 @@ const enquadramentoCenario = {
 const previaCenario = window.previaCenario === true;
 // Medidas das faixas do cenario (iguais as da ferramenta que as gera). `larguraMadeira` e a
 // largura, em px da arte, que o enquadramento trata como a madeira, e `esticamento` alarga a
-// arte na horizontal. O cenario novo (ferramentas/desenhar-cenario.html) e 1,5x mais detalhado,
-// nao e esticado e mantem as alturas do antigo, para o ceu e o espaco continuarem batendo.
+// arte na horizontal; `fimCopa` e o tronco em que a copa do pinheiro sai da tela. O cenario novo
+// (ferramentas/montar-cenario-ia.html, com as imagens geradas por IA) e 1,5x mais detalhado, nao e
+// esticado e sobe no mesmo ritmo do antigo; a copa dele e mais baixa, entao sai da tela antes.
 const texturaCenario = previaCenario ? {
     pasta: 'assets/cenario-novo', largura: 1024, altura: 12264, alturaFaixa: 2044, margem: 2,
-    centroTronco: 512, larguraMadeira: 273.75, esticamento: 1
+    centroTronco: 512, larguraMadeira: 273.75, esticamento: 1, fimCopa: 157
 } : {
     pasta: 'assets/cenario', largura: 1399, altura: 8192, alturaFaixa: 2044, margem: 2,
-    centroTronco: 665, larguraMadeira: 182.5, esticamento: 1.15
+    centroTronco: 665, larguraMadeira: 182.5, esticamento: 1.15, fimCopa: 175
 };
 // Cada tronco fica em media 212 acima do anterior (190 a 235, em gerarPlataformas).
 const alturaPorTronco = 212;
@@ -85,7 +94,7 @@ const fasesCeu = [
 // A ultima fase e o espaco.
 const faseEspaco = fasesCeu.length - 1;
 // A copa do pinheiro sai de cima da tela por volta deste tronco; so dai o espaco comeca a andar.
-const troncoFimCopa = 175;
+const troncoFimCopa = texturaCenario.fimCopa;
 // A partir de 160 troncos o jogo para de acelerar (3x a velocidade inicial).
 const velocidadeMaxima = 3;
 // Passaros inimigos aparecem a partir deste tronco; cada bicada derruba alguns granulados.
@@ -93,6 +102,23 @@ const troncoPassaros = 25;
 const granuladosBicada = 3;
 // Granulados que escapam do pacote quando o gato encosta no guaxinim distraido.
 const granuladosSusto = 5;
+// Interruptores: os poderes e o balanco de cipo ficam desligados no jogo publicado ate o usuario decidir.
+const ativarPoderes = false;
+const ativarBalanco = false;
+// Poderes em bolhas sobre alguns troncos: o primeiro perto de troncoPoderes, depois a cada 22 a 34.
+const troncoPoderes = 12;
+const poderes = {
+    ima: { nome: 'ÍMÃ', dica: 'Puxa os granulados de perto', duracao: 9, cor: 0xff7a6a },
+    escudo: { nome: 'ESCUDO', dica: 'Aguenta uma bicada', duracao: 20, cor: 0x7cc8ff },
+    pacote: { nome: 'PACOTE FURADO', dica: 'Granulado em todos os troncos', duracao: 10, cor: 0xffd24a }
+};
+const raioIma = 150;
+// Granulados pegos em sequencia, sem deixar nenhum para tras, valem x2 e depois x3.
+const niveisCombo = [{ seguidos: 10, vale: 3 }, { seguidos: 5, vale: 2 }];
+// Troncos especiais: a mola joga o gato bem alto; o balanco fica pendurado em cipos.
+const troncoMola = 30;
+const troncoBalanco = 45;
+const impulsoMola = 580;
 // Superficie da grama do chao, onde ficam os pes do gato no comeco.
 // Com essa altura a terra de assets/chao.webp cobre ate a borda de baixo da tela.
 const alturaChao = alturaTela - 44;
@@ -103,8 +129,44 @@ const superficieChao = 104 / 229;
 const folgaAbaixoGato = 340;
 const chaveRecorde = 'granulando.recorde';
 const chaveMudo = 'granulando.mudo';
+// Dicas da primeira vez: cada uma aparece uma unica vez neste aparelho.
+const chaveDicas = 'granulando.dicas';
+const dicasJogo = {
+    rachado: 'Tronco rachado quebra depois do pulo!',
+    passaro: 'Desvie do pássaro: a bicada derruba granulados',
+    poder: 'Pegue a bolha para ganhar um poder!',
+    mola: 'Pule na mola para ir bem alto!',
+    combo: 'Granulados seguidos valem mais: não deixe passar!'
+};
+// Musica, efeitos e vibracao ligam e desligam separados (na pausa e em CONFIGURACOES).
+const chaveOpcoes = 'granulando.opcoes';
 // Cofrinho de granulados e itens da loja, salvos so neste aparelho.
 const chaveLoja = 'granulando.loja';
+// Missoes do dia: 3 sorteadas pela data (iguais para todo mundo no mesmo dia). "partida" vale o
+// melhor numa partida; "dia" soma ao longo do dia. O premio cai no cofrinho ao cumprir.
+const chaveMissoes = 'granulando.missoes';
+const tiposMissao = {
+    granulados: { modo: 'partida', metas: [30, 50, 80], premios: [40, 60, 90],
+        texto: (n) => `Pegue ${n} granulados numa partida` },
+    troncos: { modo: 'partida', metas: [30, 60, 100], premios: [40, 70, 110],
+        texto: (n) => `Suba ${n} troncos numa partida` },
+    semBicada: { modo: 'partida', metas: [40, 60, 80], premios: [60, 90, 120],
+        texto: (n) => `Suba ${n} troncos sem levar bicada` },
+    sustos: { modo: 'dia', metas: [1, 2, 3], premios: [40, 70, 100],
+        texto: (n) => `Assuste o guaxinim ${n === 1 ? '1 vez' : n + ' vezes'}` },
+    dourados: { modo: 'dia', metas: [1, 2, 3], premios: [40, 60, 90],
+        texto: (n) => n === 1 ? 'Pegue 1 granulado dourado' : `Pegue ${n} granulados dourados` },
+    partidas: { modo: 'dia', metas: [2, 3, 5], premios: [30, 50, 80],
+        texto: (n) => `Jogue ${n} partidas` },
+    seguidos: { modo: 'partida', metas: [8, 12, 16], premios: [40, 70, 100],
+        texto: (n) => `Pegue ${n} granulados seguidos` },
+    poderes: { modo: 'dia', metas: [1, 2, 3], premios: [30, 50, 70],
+        texto: (n) => n === 1 ? 'Pegue 1 poder' : `Pegue ${n} poderes` }
+};
+// Sem poderes no jogo, a missao deles nao entra no sorteio.
+if (!ativarPoderes) delete tiposMissao.poderes;
+// Endereco publico do jogo, usado ao compartilhar o resultado.
+const enderecoJogo = 'https://ritualtitan.github.io/Casspet-Game/';
 // Os bichos sao o destaque da loja: animais que tambem usam o granulado. Sem arte ainda, ficam "em breve".
 const itensLoja = {
     bichos: [
@@ -134,7 +196,7 @@ const itensLoja = {
     ]
 };
 // As 4 poses: chave da textura do gato e nome do arquivo de cada bicho em assets/bichos/<id>/.
-// As imagens dos bichos tem 2048 x 2048, como as do gato, com os pes na mesma altura.
+// As imagens dos bichos tem 512 x 512, como as do gato, com os pes na mesma altura.
 const posesBicho = { mascote_1: 'parado', quasePulando: 'quasePulando', pulando: 'pulando', caindo: 'caindo' };
 // Onde cada acessorio fica em cada pose do gato, em pixels das imagens de 2048: topo da
 // cabeca, meio dos olhos e pescoco, a largura da cabeca e a inclinacao dela.
@@ -172,6 +234,14 @@ const quadrosHistoria = [
 ];
 const game = new Phaser.Game(config);
 
+function medirEscalaRenderizacao() {
+    const area = document.getElementById('jogo');
+    const largura = (area && area.clientWidth) || window.innerWidth;
+    const altura = (area && area.clientHeight) || window.innerHeight;
+    const pixels = Math.min(largura / 360, altura / alturaTela) * (window.devicePixelRatio || 1);
+    return Phaser.Math.Clamp(Math.round(pixels * 4) / 4, telaDeToque ? 1.5 : 2, 2.5);
+}
+
 function medirAlturaTela() {
     const area = document.getElementById('jogo');
     const largura = (area && area.clientWidth) || window.innerWidth;
@@ -195,6 +265,65 @@ function salvarArmazenado(chave, valor) {
     } catch (erro) {
         // Sem armazenamento disponivel.
     }
+}
+
+function diaDeHoje() {
+    const hoje = new Date();
+    return `${hoje.getFullYear()}-${hoje.getMonth() + 1}-${hoje.getDate()}`;
+}
+
+// As 3 missoes do dia, sempre as mesmas para a mesma data.
+function missoesDoDia(dia = diaDeHoje()) {
+    let semente = 0;
+    for (const letra of dia) semente = (semente * 31 + letra.charCodeAt(0)) >>> 0;
+    const aleatorio = () => {
+        semente = (semente + 0x6d2b79f5) >>> 0;
+        let t = semente;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const chaves = Object.keys(tiposMissao);
+    const escolhidas = [];
+    while (escolhidas.length < 3) {
+        const chave = chaves[Math.floor(aleatorio() * chaves.length)];
+        if (!escolhidas.includes(chave)) escolhidas.push(chave);
+    }
+    return escolhidas.map((chave) => {
+        const tipo = tiposMissao[chave];
+        const nivel = Math.floor(aleatorio() * tipo.metas.length);
+        return { id: chave, modo: tipo.modo, meta: tipo.metas[nivel], premio: tipo.premios[nivel], texto: tipo.texto(tipo.metas[nivel]) };
+    });
+}
+
+// Progresso salvo; num dia novo comeca do zero.
+function lerProgressoMissoes() {
+    const salvo = lerArmazenado(chaveMissoes, null);
+    const dia = diaDeHoje();
+    if (salvo && salvo.dia === dia) return salvo;
+    return { dia, progresso: {}, feitas: [] };
+}
+
+// Avanca uma missao: em "partida" guarda o melhor valor, em "dia" soma. Paga o premio ao cumprir.
+function registrarMissao(cena, id, valor) {
+    const missao = missoesDoDia().find((item) => item.id === id);
+    if (!missao) return;
+    const estado = lerProgressoMissoes();
+    if (estado.feitas.includes(id)) return;
+    const atual = estado.progresso[id] || 0;
+    estado.progresso[id] = missao.modo === 'dia' ? atual + valor : Math.max(atual, valor);
+    if (estado.progresso[id] >= missao.meta) {
+        estado.feitas.push(id);
+        const loja = lerLoja();
+        loja.saldo += missao.premio;
+        salvarLoja(loja);
+        cena.loja = loja;
+        if (cena.iniciado && !cena.morreu) {
+            mostrarFaixa(cena, 'MISSÃO CUMPRIDA!', `+${missao.premio} granulados no cofrinho`, '#ffd24a');
+            som.recorde();
+        }
+    }
+    salvarArmazenado(chaveMissoes, estado);
 }
 
 // Copia da loja nesta aba: vale mesmo quando o navegador nao deixa salvar (aba anonima).
@@ -240,6 +369,7 @@ const som = {
     ctx: null,
     saida: null,
     mudo: lerArmazenado(chaveMudo, false) === true,
+    opcoes: { musica: true, efeitos: true, vibracao: true, ...lerArmazenado(chaveOpcoes, {}) },
     // O navegador so libera audio depois de um toque ou tecla.
     iniciar() {
         if (!this.ctx) {
@@ -260,7 +390,7 @@ const som = {
         }
     },
     tom(frequencia, duracao, { tipo = 'square', volume = 0.2, ate = 0, atraso = 0 } = {}) {
-        if (!this.ctx || this.mudo) return;
+        if (!this.ctx || this.mudo || !this.opcoes.efeitos) return;
         const inicio = this.ctx.currentTime + atraso;
         const oscilador = this.ctx.createOscillator();
         const ganho = this.ctx.createGain();
@@ -275,7 +405,7 @@ const som = {
         oscilador.stop(inicio + duracao + 0.02);
     },
     ruido(duracao, { volume = 0.2, frequencia = 1000, atraso = 0 } = {}) {
-        if (!this.ctx || this.mudo) return;
+        if (!this.ctx || this.mudo || !this.opcoes.efeitos) return;
         const inicio = this.ctx.currentTime + atraso;
         const amostras = Math.ceil(this.ctx.sampleRate * duracao);
         const buffer = this.ctx.createBuffer(1, amostras, this.ctx.sampleRate);
@@ -292,8 +422,14 @@ const som = {
         fonte.connect(filtro).connect(ganho).connect(this.saida);
         fonte.start(inicio);
     },
+    // A vibracao tem a sua propria opcao: vale mesmo com o som desligado.
     vibrar(ms) {
-        if (!this.mudo && navigator.vibrate) navigator.vibrate(ms);
+        if (this.opcoes.vibracao && navigator.vibrate) navigator.vibrate(ms);
+    },
+    alternarOpcao(chave) {
+        this.opcoes[chave] = !this.opcoes[chave];
+        salvarArmazenado(chaveOpcoes, this.opcoes);
+        if (chave === 'vibracao') this.vibrar(40);
     },
     clique() {
         this.tom(660, 0.06, { tipo: 'sine', volume: 0.12 });
@@ -357,6 +493,34 @@ const som = {
         this.ruido(0.08, { volume: 0.3, frequencia: 2600 });
         this.tom(520, 0.25, { tipo: 'triangle', volume: 0.16, ate: 180, atraso: 0.03 });
         this.vibrar(40);
+    },
+    // Bolha estourando e um brilho subindo.
+    poder() {
+        this.ruido(0.06, { volume: 0.15, frequencia: 3000 });
+        [784, 988, 1175, 1568].forEach((frequencia, i) =>
+            this.tom(frequencia, 0.13, { tipo: 'sine', volume: 0.13, atraso: 0.03 + i * 0.06 }));
+        this.vibrar(20);
+    },
+    fimPoder() {
+        this.tom(880, 0.16, { tipo: 'sine', volume: 0.07, ate: 440 });
+    },
+    escudo() {
+        this.tom(1500, 0.3, { tipo: 'triangle', volume: 0.14, ate: 500 });
+        this.ruido(0.12, { volume: 0.18, frequencia: 5200 });
+        this.vibrar(30);
+    },
+    mola() {
+        this.tom(170, 0.38, { tipo: 'sine', volume: 0.22, ate: 760 });
+        this.tom(340, 0.24, { tipo: 'triangle', volume: 0.06, ate: 1100, atraso: 0.04 });
+        this.vibrar(15);
+    },
+    combo(vale) {
+        [659, 880, 1047, 1319].slice(0, vale + 1).forEach((frequencia, i) =>
+            this.tom(frequencia, 0.14, { tipo: 'triangle', volume: 0.12, atraso: i * 0.06 }));
+        this.vibrar([15, 40, 15]);
+    },
+    comboPerdido() {
+        this.tom(440, 0.22, { tipo: 'triangle', volume: 0.08, ate: 250 });
     },
     feliz() {
         this.tom(784, 0.14, { tipo: 'sine', volume: 0.12 });
@@ -444,7 +608,7 @@ const musica = {
         // Depois de a aba ficar em segundo plano, nao despeja as notas atrasadas de uma vez.
         if (this.proximoTempo < ctx.currentTime - 0.05) this.proximoTempo = ctx.currentTime + 0.05;
         while (this.proximoTempo < ctx.currentTime + 0.15) {
-            if (!som.mudo) this.tocarPasso(this.passo, this.proximoTempo);
+            if (!som.mudo && som.opcoes.musica) this.tocarPasso(this.passo, this.proximoTempo);
             this.proximoTempo += 30 / this.bpm;
             this.passo = (this.passo + 1) % trilha.melodia.length;
         }
@@ -558,22 +722,23 @@ function preload() {
     for (let i = 0; i < quantidadeFaixas; i++) {
         this.load.image('cenario_' + i, `${texturaCenario.pasta}/cenario-${i}.webp`);
     }
-    this.load.svg('troncoLiso', 'assets/tronco liso.svg');
-    this.load.svg('troncoRachado', 'assets/tronco rachado.svg');
+    // Os SVGs dos troncos sao rasterizados no tamanho em que aparecem (e nao nos 1150 px originais).
+    this.load.svg('troncoLiso', 'assets/tronco liso.svg', { width: 384, height: 86 });
+    this.load.svg('troncoRachado', 'assets/tronco rachado.svg', { width: 384, height: 86 });
     // Gato parado redesenhado no mesmo estilo das outras poses (o antigo, mais escuro, e assets/mascote_1.png).
-    this.load.image('mascote_1', 'assets/gato-parado.webp');
+    this.load.image('mascote_1', 'assets/gato/parado.webp');
     // Tonto, com estrelinhas: aparece um instante quando o passaro ou o OVNI acerta.
-    this.load.image('machucado', 'assets/gato-machucado.webp');
-    this.load.image('pulando', 'assets/pulando.png');
-    this.load.image('quasePulando', 'assets/3quasepualndo.png');
-    this.load.image('caindo', 'assets/caindo.png');
+    this.load.image('machucado', 'assets/gato/machucado.webp');
+    this.load.image('pulando', 'assets/gato/pulando.webp');
+    this.load.image('quasePulando', 'assets/gato/quasePulando.webp');
+    this.load.image('caindo', 'assets/gato/caindo.webp');
     itensLoja.bichos.filter((bicho) => bicho.arte).forEach((bicho) => {
         Object.entries(posesBicho).forEach(([pose, arquivo]) =>
             this.load.image(bicho.id + '_' + pose, bicho.arte + arquivo + '.webp'));
     });
-    this.load.image('moeda', 'assets/moeda-jogo.png');
-    this.load.svg('moedaDourada', 'assets/granulado-dourado.svg');
-    this.load.image('introducao', 'assets/inicio2.png');
+    this.load.image('moeda', 'assets/granulado.webp');
+    this.load.svg('moedaDourada', 'assets/granulado-dourado.svg', { width: larguraGranulado, height: larguraGranulado });
+    this.load.image('introducao', 'assets/inicio.webp');
     this.load.image('historia', 'assets/historia.webp');
     // Recorte com fundo transparente de assets/guaxinim-original.webp.
     this.load.image('guaxinim', 'assets/guaxinim.png');
@@ -597,8 +762,22 @@ function create(data = {}) {
     this.contador = 0;
     this.totalMoedas = 0;
     this.tempoMoedas = 0;
-    this.comboGranulado = 0;
-    this.ultimoGranulado = -Infinity;
+    this.combo = { seguidos: 0, vale: 1 };
+    // Contagens da partida para as missoes do dia.
+    this.granuladosPegos = 0;
+    this.bicadas = 0;
+    // Poderes ativos (com o tempo que resta) e bolhas de poder esperando nos troncos.
+    this.poderes = {};
+    this.itensPoder = [];
+    this.proximoPoder = Phaser.Math.Between(troncoPoderes, troncoPoderes + 4);
+    this.ultimoPoder = null;
+    this.proximaMola = troncoMola + Phaser.Math.Between(0, 6);
+    this.dicasVistas = lerArmazenado(chaveDicas, []);
+    this.filaDicas = [];
+    this.dicaAberta = null;
+    this.esperaDicas = 0;
+    this.maoTutorial = null;
+    this.proximoBalanco = troncoBalanco + Phaser.Math.Between(0, 6);
     this.alturaMax = 0;
     this.recorde = lerRecorde();
     this.passouRecorde = false;
@@ -612,6 +791,10 @@ function create(data = {}) {
     // Os troncos sao criados antes do guaxinim; nao aproveita o da partida anterior.
     this.guaxinim = null;
     this.espaco = null;
+    // O ceu e criado antes das folhas; sem isso ele religaria as folhas da partida anterior,
+    // ja destruidas (o jogo travava no MENU ou no JOGAR DE NOVO depois de perder no espaco).
+    this.folhasJogo = null;
+    this.faixa = null;
     this.passaros = [];
     this.esperaPassaro = 2500;
     this.vidaFundo = { esperaBorboleta: 2500, esperaBando: 6000, esperaVagalume: 0 };
@@ -650,7 +833,8 @@ function create(data = {}) {
     vestirGato(this, this.gato);
     atualizarCenario(this, 0);
     this.physics.add.existing(this.caixa);
-    this.caixa.body.setSize(1200, 1400);
+    // Corpo em pixels da textura de 512 (o mesmo que 1200 x 1400 na grade de 2048).
+    this.caixa.body.setSize(tamanhoPose * 1200 / 2048, tamanhoPose * 1400 / 2048);
     // Roda depois da fisica, para o gato nunca ficar um quadro atrasado.
     const sincronizar = (tempo, delta) => sincronizarGato(this, delta);
     this.events.on('postupdate', sincronizar);
@@ -713,7 +897,7 @@ function create(data = {}) {
             emitting: false, lifespan: 1100,
             speedX: { min: -50, max: 50 }, speedY: { min: -60, max: 10 },
             gravityY: 650, rotate: { start: 0, end: 360 },
-            scale: { start: 0.022, end: 0.018 }, alpha: { start: 1, end: 0 }
+            scale: { start: 18 / larguraGranulado, end: 14.5 / larguraGranulado }, alpha: { start: 1, end: 0 }
         }).setDepth(1.6),
         // Penas soltas quando o passaro inimigo bica o gato.
         penas: this.add.particles(0, 0, 'fx_folha', {
@@ -776,6 +960,77 @@ function create(data = {}) {
         fontStyle: 'bold', color: '#4d2710', stroke: '#f6c98f', strokeThickness: Math.max(1, Math.round(3 * escalaInicio))
     }).setOrigin(0.5);
     itensInicio.push(remendo, iconeLoja, textoLoja);
+    // Missoes do dia: botao redondo no alto do menu, com quantas ja foram feitas hoje.
+    const feitasHoje = lerProgressoMissoes().feitas.length;
+    const iconeMissoes = this.add.graphics();
+    desenharIconeMissoes(iconeMissoes);
+    const botaoMissoes = this.add.container(322, 44, [
+        this.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 24),
+        this.add.image(0, 0, texturaMadeira(this, 52, 52, { raio: 24 })).setScale(1 / escalaMadeira),
+        iconeMissoes,
+        this.add.circle(17, 17, 12, feitasHoje === 3 ? 0x3f8a4c : 0xd9452f).setStrokeStyle(2, 0xfff4d6),
+        this.add.text(17, 17, `${feitasHoje}/3`, {
+            resolution: 4, fontFamily: 'Arial', fontSize: '10px', fontStyle: 'bold', color: '#fff4d6'
+        }).setOrigin(0.5),
+        this.add.text(0, 36, 'Missões', {
+            resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold', color: '#fff4d6',
+            stroke: '#2a1410', strokeThickness: 4
+        }).setOrigin(0.5)
+    ]).setSize(56, 56).setInteractive({ useHandCursor: true });
+    // Balanca de vez em quando enquanto faltam missoes, para chamar a atencao.
+    if (feitasHoje < 3) {
+        this.tweens.add({
+            targets: botaoMissoes, angle: { from: -8, to: 8 }, duration: 120, yoyo: true, repeat: 3,
+            repeatDelay: 0, loop: -1, loopDelay: 2600
+        });
+    }
+    botaoMissoes.on('pointerdown', () => {
+        if (this.avisoInicio) return;
+        som.iniciar();
+        som.clique();
+        botoesMenu.forEach((botao) => botao.disableInteractive());
+        this.avisoInicio = mostrarMissoes(this, () => {
+            this.avisoInicio = null;
+            botoesMenu.forEach((botao) => botao.setInteractive({ useHandCursor: true }));
+        });
+    });
+    itensInicio.push(botaoMissoes);
+    // Instalar como app: no Android usa o convite do navegador; no iPhone explica o caminho.
+    // Some quando o jogo ja esta aberto como app.
+    const comoApp = window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches ||
+        window.navigator.standalone === true;
+    const noIphone = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (!comoApp && (window.pedidoInstalar || noIphone)) {
+        const iconeInstalar = this.add.graphics();
+        desenharIconeInstalar(iconeInstalar);
+        const botaoInstalar = this.add.container(38, 44, [
+            this.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 24),
+            this.add.image(0, 0, texturaMadeira(this, 52, 52, { raio: 24 })).setScale(1 / escalaMadeira),
+            iconeInstalar,
+            this.add.text(0, 36, 'Instalar', {
+                resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold', color: '#fff4d6',
+                stroke: '#2a1410', strokeThickness: 4
+            }).setOrigin(0.5)
+        ]).setSize(56, 56).setInteractive({ useHandCursor: true });
+        botaoInstalar.on('pointerdown', () => {
+            if (this.avisoInicio) return;
+            som.iniciar();
+            const pedido = window.pedidoInstalar;
+            if (pedido) {
+                som.clique();
+                window.pedidoInstalar = null;
+                pedido.prompt();
+                pedido.userChoice.then((escolha) => {
+                    if (escolha.outcome === 'accepted' && botaoInstalar.active) botaoInstalar.setVisible(false);
+                }).catch(() => {});
+                return;
+            }
+            mostrarAvisoInicio('INSTALAR O JOGO\n\nNo iPhone, abra este link no Safari, toque em Compartilhar ' +
+                '(o quadrado com a seta para cima) e depois em "Adicionar à Tela de Início".\n\n' +
+                'O Granulando vira um app e abre em tela cheia, até sem internet.');
+        });
+        itensInicio.push(botaoInstalar);
+    }
     // Folhas caindo por cima da arte deixam o menu vivo.
     const folhasInicio = criarFolhas(this, 0, 700);
     const borboletasMenu = criarBorboletasMenu(this, yArte);
@@ -793,9 +1048,11 @@ function create(data = {}) {
         if (this.avisoInicio) return;
         som.clique();
         const centro = config.height / 2;
-        const fundo = this.add.rectangle(180, centro, 336, 330, corMadeiraEscura)
+        // As configuracoes tambem mostram as opcoes de som, entao a caixa cresce.
+        const alto = comHistoria ? 150 : 0;
+        const fundo = this.add.rectangle(180, centro, 336, 330 + alto, corMadeiraEscura)
             .setStrokeStyle(2, 0xffe1a6);
-        const mensagem = this.add.text(180, centro - 48, texto, {
+        const mensagem = this.add.text(180, centro - 48 - alto / 2 - (comHistoria ? 10 : 0), texto, {
             resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: corTexto,
             align: 'center', wordWrap: { width: 300 }, lineSpacing: 6
         }).setOrigin(0.5);
@@ -803,9 +1060,10 @@ function create(data = {}) {
             resolution: 4, fontFamily: 'Arial', fontSize: '17px', fontStyle: 'bold',
             color: '#ffffff', backgroundColor: '#634128', padding: { x: 20, y: 12 }
         };
-        const fechar = this.add.text(comHistoria ? 250 : 180, centro + 108, 'VOLTAR', estiloBotao)
+        const fechar = this.add.text(comHistoria ? 250 : 180, centro + 108 + alto / 2, 'VOLTAR', estiloBotao)
             .setOrigin(0.5).setInteractive({ useHandCursor: true });
         const itens = [fundo, mensagem, fechar];
+        if (comHistoria) itens.push(...criarOpcoesSom(this, centro + 10));
         const fecharAviso = () => {
             som.clique();
             this.avisoInicio.destroy();
@@ -813,7 +1071,7 @@ function create(data = {}) {
             botoesMenu.forEach((botao) => botao.setInteractive({ useHandCursor: true }));
         };
         if (comHistoria) {
-            const historia = this.add.text(112, centro + 108, 'HISTÓRIA',
+            const historia = this.add.text(112, centro + 108 + alto / 2, 'HISTÓRIA',
                 { ...estiloBotao, backgroundColor: '#8a5a2b' })
                 .setOrigin(0.5).setInteractive({ useHandCursor: true });
             historia.on('pointerup', () => {
@@ -847,6 +1105,7 @@ function create(data = {}) {
     this.physics.pause();
 
     const iniciarPartida = () => {
+        registrarMissao(this, 'partidas', 1);
         criarHud(this);
         musica.definirVelocidade(1);
         musica.tocar();
@@ -856,6 +1115,7 @@ function create(data = {}) {
             this.iniciado = true;
             this.physics.resume();
             provocarGuaxinim(this);
+            if (!this.dicasVistas.includes('mover')) mostrarMaoTutorial(this);
         });
     };
     const comecar = () => {
@@ -962,6 +1222,7 @@ function criarTexturasEfeitos(cena) {
         g.generateTexture(chave, 100, 60);
     });
     criarTexturasAcessorios(g);
+    criarTexturasPoderes(g);
     // Silhueta de passarinho distante para os bandos do fundo; a cor vem do tint.
     [['fx_ave_fundo_a', [[3, 4], [10, 9], [20, 13], [30, 9], [37, 4]]],
         ['fx_ave_fundo_b', [[3, 15], [10, 11], [20, 12], [30, 11], [37, 15]]]].forEach(([chave, asas]) => {
@@ -970,6 +1231,87 @@ function criarTexturasEfeitos(cena) {
         g.generateTexture(chave, 40, 20);
     });
     g.destroy();
+}
+
+// Poderes, bolha, escudo em volta do gato e mola, desenhados em 3x (usados com escala 1/3).
+function criarTexturasPoderes(g) {
+    const contorno = 0x2a1512;
+    const desenhar = (chave, largura, altura, pintar) => {
+        g.clear().save().scaleCanvas(3, 3);
+        pintar();
+        g.restore();
+        g.generateTexture(chave, largura * 3, altura * 3);
+    };
+    // Ima de ferradura vermelho com pontas prateadas.
+    desenhar('pw_ima', 30, 30, () => {
+        const ferradura = (espessura, cor) => {
+            g.lineStyle(espessura, cor, 1).beginPath();
+            g.moveTo(7.5, 5);
+            g.lineTo(7.5, 15);
+            g.arc(15, 15, 7.5, Math.PI, 0, true);
+            g.lineTo(22.5, 5);
+            g.strokePath();
+        };
+        ferradura(10, contorno);
+        ferradura(6.5, 0xe8453c);
+        g.lineStyle(1.5, 0xff9a8a, 1).beginPath().arc(15, 15, 7.5, Math.PI * 0.85, Math.PI * 0.55, true).strokePath();
+        [4, 19].forEach((x) => g.fillStyle(0xe6ecf2, 1).fillRect(x, 2, 7, 5).lineStyle(2, contorno, 1).strokeRect(x, 2, 7, 5));
+    });
+    // Escudo azul com um brilho.
+    desenhar('pw_escudo', 30, 30, () => {
+        const pontos = [[15, 3], [26, 7], [25, 16], [15, 27], [5, 16], [4, 7]].map(([x, y]) => ({ x, y }));
+        g.fillStyle(0x3d8fd9, 1).fillPoints(pontos, true).lineStyle(2.5, contorno, 1).strokePoints(pontos, true);
+        const dentro = [[15, 7], [22, 9.5], [21.5, 15.5], [15, 22.5], [8.5, 15.5], [8, 9.5]].map(([x, y]) => ({ x, y }));
+        g.fillStyle(0x7cc8ff, 1).fillPoints(dentro, true);
+        g.fillStyle(0xffffff, 0.8).fillEllipse(11.5, 11, 3.5, 6);
+    });
+    // Pacote de granulado com um furo e granulados escapando.
+    desenhar('pw_pacote', 30, 30, () => {
+        g.fillStyle(contorno, 1).fillRoundedRect(5, 3, 17, 23, 3);
+        g.fillStyle(0xe8cc9c, 1).fillRoundedRect(6.5, 4.5, 14, 20, 2);
+        g.fillStyle(0x1e1e1e, 1).fillRect(6.5, 4.5, 14, 5);
+        g.fillStyle(0x2f6b3a, 1).fillRect(6.5, 20.5, 14, 4);
+        g.fillStyle(0xc9a06a, 1).fillRoundedRect(9, 12, 9, 6, 1.5);
+        g.fillStyle(contorno, 1).fillEllipse(19.5, 18, 5, 4);
+        [[23, 20, 2], [25.5, 24, 1.8], [22.5, 27, 1.6]].forEach(([x, y, r]) =>
+            g.fillStyle(contorno, 1).fillCircle(x, y, r + 0.8).fillStyle(0xd9a55f, 1).fillCircle(x, y, r));
+    });
+    // Bolha transparente com reflexo.
+    desenhar('pw_bolha', 48, 48, () => {
+        g.fillStyle(0xffffff, 0.14).fillCircle(24, 24, 21);
+        g.lineStyle(2, 0xffffff, 0.85).strokeCircle(24, 24, 21);
+        g.lineStyle(3, 0xffffff, 0.8).beginPath().arc(24, 24, 16, Math.PI * 1.1, Math.PI * 1.4, false).strokePath();
+        g.fillStyle(0xffffff, 0.9).fillCircle(33, 14, 2);
+    });
+    // Raios de luz atras da bolha; a cor vem do tint.
+    desenhar('pw_brilho', 60, 60, () => {
+        for (let i = 0; i < 8; i++) {
+            const a = i * Math.PI / 4;
+            g.fillStyle(0xffffff, 0.55).fillTriangle(30, 30,
+                30 + Math.cos(a - 0.14) * 30, 30 + Math.sin(a - 0.14) * 30,
+                30 + Math.cos(a + 0.14) * 30, 30 + Math.sin(a + 0.14) * 30);
+        }
+        g.fillStyle(0xffffff, 0.5).fillCircle(30, 30, 17);
+    });
+    // Campo do escudo em volta do gato.
+    desenhar('pw_campo', 96, 96, () => {
+        g.fillStyle(0x7cc8ff, 0.14).fillCircle(48, 48, 45);
+        g.lineStyle(2.5, 0xbfe6ff, 0.9).strokeCircle(48, 48, 45);
+        g.lineStyle(4, 0xffffff, 0.7).beginPath().arc(48, 48, 38, Math.PI * 1.1, Math.PI * 1.45, false).strokePath();
+        g.lineStyle(2, 0xffffff, 0.5).beginPath().arc(48, 48, 38, Math.PI * 0.15, Math.PI * 0.3, false).strokePath();
+    });
+    // Mola: base, espiral prateada e tampa vermelha.
+    desenhar('fx_mola', 44, 22, () => {
+        g.fillStyle(contorno, 1).fillRoundedRect(10, 17, 24, 5, 2);
+        g.fillStyle(0x6c7488, 1).fillRoundedRect(11.5, 18, 21, 3, 1);
+        const espiral = [];
+        for (let i = 0; i <= 6; i++) espiral.push({ x: i % 2 ? 29 : 15, y: 18 - i * 2.2 });
+        g.lineStyle(4.5, contorno, 1).strokePoints(espiral, false);
+        g.lineStyle(2.2, 0xd8dee6, 1).strokePoints(espiral, false);
+        g.fillStyle(contorno, 1).fillRoundedRect(2, 0, 40, 7, 3.5);
+        g.fillStyle(0xe8453c, 1).fillRoundedRect(3.5, 1.2, 37, 4.6, 2.3);
+        g.fillStyle(0xff9a8a, 1).fillRoundedRect(6, 1.8, 14, 1.6, 0.8);
+    });
 }
 
 // Acessorios da loja e o icone da placa LOJA, no mesmo traco escuro do gato.
@@ -1326,7 +1668,8 @@ function atualizarPassaros(cena, delta) {
         if (!passaro.acertou && !protegido && !cena.morreu &&
             Math.abs(imagem.x - corpo.center.x) < corpo.halfWidth + (passaro.ovni ? 22 : 16) &&
             Math.abs(imagem.y - corpo.center.y) < corpo.halfHeight + (passaro.ovni ? 8 : 10)) {
-            bicarGato(cena, passaro);
+            if (cena.poderes.escudo) defenderComEscudo(cena, passaro);
+            else bicarGato(cena, passaro);
         }
         const saiu = passaro.direcao > 0 ? imagem.x > config.width + 50 : imagem.x < -50;
         if (saiu || imagem.y > camera.scrollY + config.height + 60) {
@@ -1373,6 +1716,8 @@ function criarPassaro(cena, ovni = false, atrasoAviso = 0) {
 
 function bicarGato(cena, passaro) {
     passaro.acertou = true;
+    cena.bicadas += 1;
+    quebrarCombo(cena);
     const caixa = cena.caixa;
     const agora = cena.time.now;
     // Um instante protegido, piscando, para outra bicada nao vir em seguida.
@@ -1443,17 +1788,27 @@ function criarHud(cena) {
     // Sombra suave embaixo de cada peca, para destacar do tronco laranja atras.
     const sombra = (largura, altura, raio) => cena.add.graphics().fillStyle(0x1a0e08, 0.35)
         .fillRoundedRect(-largura / 2 + 1, -altura / 2 + 3, largura - 2, altura, raio);
-    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 116, 40, { raio: 14 })).setScale(0.5);
-    const icone = cena.add.image(-34, 0, 'moeda').setScale(26 / 808).setAngle(-12);
+    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 116, 40, { raio: 14 })).setScale(1 / escalaMadeira);
+    const icone = cena.add.image(-34, 0, 'moeda').setScale(26 / larguraGranulado).setAngle(-12);
     const texto = cena.add.text(-16, 1, '0', estiloNumero(19)).setOrigin(0, 0.5);
     const granulados = fixo(cena.add.container(180, 26, [sombra(112, 36, 13), fundo, icone, texto]));
-    const fundoTroncos = cena.add.image(0, 0, texturaMadeira(cena, 88, 32, { raio: 11, escurecer: 0.12 })).setScale(0.5);
+    const fundoTroncos = cena.add.image(0, 0, texturaMadeira(cena, 88, 32, { raio: 11, escurecer: 0.12 })).setScale(1 / escalaMadeira);
     const iconeTroncos = cena.add.image(-24, 0, 'ic_tronco').setScale(0.46);
     const textoTroncos = cena.add.text(-12, 1, '0', estiloNumero(15)).setOrigin(0, 0.5);
     const troncos = fixo(cena.add.container(56, 26, [sombra(84, 28, 10), fundoTroncos, iconeTroncos, textoTroncos]));
     const botaoPausa = criarBotaoHud(cena, 294, desenharIconePausa, () => alternarPausa(cena));
     const botaoSom = criarBotaoHud(cena, 336, desenharIconeSom, () => som.alternarMudo());
-    cena.hud = { granulados, icone, texto, troncos, textoTroncos, botaoSom };
+    // Sequencia de granulados (combo), embaixo da placa; so aparece a partir de 2 seguidos.
+    const textoCombo = cena.add.text(0, -1, '', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold', color: '#fff4d6',
+        stroke: '#2a1410', strokeThickness: 3
+    }).setOrigin(0.5);
+    const barraCombo = cena.add.graphics();
+    const combo = fixo(cena.add.container(180, 57, [
+        cena.add.image(0, 2, texturaMadeira(cena, 100, 28, { raio: 10, escurecer: 0.3 })).setScale(1 / escalaMadeira),
+        textoCombo, barraCombo
+    ])).setVisible(false);
+    cena.hud = { granulados, icone, texto, troncos, textoTroncos, botaoSom, combo, textoCombo, barraCombo };
     atualizarHud(cena);
     // Entram caindo do alto, um de cada vez.
     [troncos, granulados, botaoPausa.botao, botaoSom.botao].forEach((item, i) => {
@@ -1491,7 +1846,7 @@ function criarBotaoSubir(cena) {
 
 // Botao redondo de madeira com um icone claro desenhado por cima.
 function criarBotaoHud(cena, x, desenharIcone, acao) {
-    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 40, 40, { raio: 18 })).setScale(0.5);
+    const fundo = cena.add.image(0, 0, texturaMadeira(cena, 40, 40, { raio: 18 })).setScale(1 / escalaMadeira);
     const icone = cena.add.graphics();
     const sombra = cena.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 18);
     const botao = cena.add.container(x, 26, [sombra, fundo, icone]).setSize(44, 44)
@@ -1513,6 +1868,24 @@ function criarBotaoHud(cena, x, desenharIcone, acao) {
     });
     desenhar();
     return { botao, desenhar };
+}
+
+// Celular com uma seta para baixo, para o botao de instalar.
+function desenharIconeInstalar(g) {
+    g.fillStyle(0xfff4d6, 1).lineStyle(2.5, 0x4d2710, 1)
+        .fillRoundedRect(-8, -13, 16, 26, 3).strokeRoundedRect(-8, -13, 16, 26, 3);
+    g.fillStyle(0x4d2710, 1).fillRect(-2, 9, 4, 1.5);
+    g.lineStyle(3.2, 0x3f8a4c, 1).lineBetween(0, -8, 0, 4);
+    g.fillStyle(0x3f8a4c, 1).fillTriangle(-5.5, 1, 5.5, 1, 0, 7.5);
+}
+
+// Pergaminho com lista e um visto, para o botao das missoes.
+function desenharIconeMissoes(g) {
+    g.fillStyle(0xfff4d6, 1).lineStyle(2.5, 0x4d2710, 1)
+        .fillRoundedRect(-10, -12, 20, 24, 4).strokeRoundedRect(-10, -12, 20, 24, 4);
+    g.lineStyle(2, 0x9a6a44, 1);
+    [-5, 0, 5].forEach((y) => g.lineBetween(-5, y, 5, y));
+    g.lineStyle(3, 0x3f8a4c, 1).lineBetween(2, 8, 5, 11).lineBetween(5, 11, 12, 2);
 }
 
 // Icones claros com contorno marrom, legiveis sobre a madeira.
@@ -1570,13 +1943,13 @@ function voarParaPlacar(cena, x, y, textura, escala) {
         .setScrollFactor(0).setDepth(11);
     const destinoX = hud.granulados.x + hud.icone.x;
     cena.tweens.add({
-        targets: voando, x: destinoX, y: hud.granulados.y, scale: 26 / 808, angle: 360,
+        targets: voando, x: destinoX, y: hud.granulados.y, scale: 26 / larguraGranulado, angle: 360,
         duration: 420, ease: 'Quad.easeIn',
         onComplete: () => {
             voando.destroy();
             cena.tweens.killTweensOf(hud.icone);
-            hud.icone.setScale(26 / 808 * 1.5);
-            cena.tweens.add({ targets: hud.icone, scale: 26 / 808, duration: 260, ease: 'Back.easeOut' });
+            hud.icone.setScale(26 / larguraGranulado * 1.5);
+            cena.tweens.add({ targets: hud.icone, scale: 26 / larguraGranulado, duration: 260, ease: 'Back.easeOut' });
         }
     });
 }
@@ -1597,22 +1970,162 @@ function alternarPausa(cena, pausar = !cena.pausado) {
     cena.tweens.pauseAll();
     musica.parar();
     const sombra = cena.add.rectangle(180, config.height / 2, 360, config.height, 0x160d08, 0.72);
-    const titulo = cena.add.text(180, config.height / 2 - 30, 'PAUSADO', {
+    const centro = config.height / 2;
+    const titulo = cena.add.text(180, centro - 160, 'PAUSADO', {
         resolution: 4, fontFamily: 'Arial', fontSize: '34px', fontStyle: 'bold',
         color: corTexto, stroke: '#1a0e08', strokeThickness: 6
     }).setOrigin(0.5);
-    const dica = cena.add.text(180, config.height / 2 + 25,
+    const dica = cena.add.text(180, centro - 118,
         'Toque na tela para continuar', {
         resolution: 4, fontFamily: 'Arial', fontSize: '15px', color: '#f4ddc9',
         align: 'center', lineSpacing: 4
     }).setOrigin(0.5);
-    const continuar = criarBotaoMadeira(cena, 180, config.height / 2 + 90, 200, 50, 'CONTINUAR',
+    const opcoes = criarOpcoesSom(cena, centro - 60);
+    const continuar = criarBotaoMadeira(cena, 180, centro + 100, 200, 50, 'CONTINUAR',
         () => alternarPausa(cena, false));
-    const menu = criarBotaoMadeira(cena, 180, config.height / 2 + 152, 200, 50, 'MENU',
+    const menu = criarBotaoMadeira(cena, 180, centro + 162, 200, 50, 'MENU',
         () => voltarAoMenu(cena), { cor: 0xd9c2a8 });
     // Fica abaixo dos botoes, para o som continuar acessivel na pausa.
-    cena.telaPausa = cena.add.container(0, 0, [sombra, titulo, dica, continuar, menu])
+    cena.telaPausa = cena.add.container(0, 0, [sombra, titulo, dica, ...opcoes, continuar, menu])
         .setScrollFactor(0).setDepth(11);
+}
+
+// Primeira partida: uma mao arrasta de um lado para o outro na metade de baixo da tela,
+// mostrando como andar. Some quando o jogador arrasta o dedo (ou usa o teclado) por um tempinho.
+function mostrarMaoTutorial(cena) {
+    const y = config.height - 150;
+    // Mao com o indicador para cima; a ponta do dedo e onde o toque encosta na tela.
+    // Primeiro a silhueta escura um pouco maior, depois o preenchimento claro por cima.
+    const formas = (folga) => {
+        // Indicador na ponta esquerda da palma, tres dedos dobrados a direita e o polegar aberto.
+        mao.fillRoundedRect(-11 - folga, -32 - folga, 10.5 + folga * 2, 34 + folga * 2, 5.25 + folga);
+        mao.fillRoundedRect(-12 - folga, -8 - folga, 29 + folga * 2, 27 + folga * 2, 9 + folga);
+        mao.fillCircle(3.5, -6, 4.8 + folga).fillCircle(9.5, -5, 4.6 + folga).fillCircle(14.5, -2, 4.3 + folga);
+        mao.fillEllipse(-15, 8, 9 + folga * 2, 17 + folga * 2);
+    };
+    const mao = cena.add.graphics();
+    mao.fillStyle(0x4d2710, 1);
+    formas(2.5);
+    mao.fillStyle(0xfff4d6, 1);
+    formas(0);
+    mao.lineStyle(1.6, 0xc9a06a, 1).lineBetween(6.5, -4, 6.5, 2).lineBetween(12, -1, 12, 4);
+    mao.fillStyle(0x4d2710, 1).fillRoundedRect(-13.5, 17, 32, 12, 3);
+    mao.fillStyle(0x3d8fd9, 1).fillRoundedRect(-11, 19.5, 27, 7, 2);
+    const toque = cena.add.circle(-5.75, -30, 10, 0xffffff, 0.35).setStrokeStyle(2, 0xffffff, 0.8);
+    const texto = cena.add.text(0, -70, 'Arraste o dedo aqui embaixo', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '16px', fontStyle: 'bold', color: '#fff4d6',
+        stroke: '#2a1410', strokeThickness: 5
+    }).setOrigin(0.5);
+    const seta = cena.add.text(0, -46, '◀   ▶', {
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', color: '#fff4d6', stroke: '#2a1410', strokeThickness: 4
+    }).setOrigin(0.5);
+    const dedo = cena.add.container(110, y + 34, [toque, mao]).setAngle(-12);
+    const grupo = cena.add.container(0, 0, [
+        cena.add.container(180, y, [texto, seta]), dedo
+    ]).setScrollFactor(0).setDepth(14).setAlpha(0);
+    cena.tweens.add({ targets: grupo, alpha: 1, duration: 300 });
+    cena.tweens.add({ targets: dedo, x: 250, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    cena.tweens.add({ targets: toque, scale: 1.6, alpha: 0, duration: 700, repeat: -1 });
+    cena.maoTutorial = { grupo, arrastou: 0 };
+}
+
+function fecharMaoTutorial(cena) {
+    const grupo = cena.maoTutorial.grupo;
+    cena.maoTutorial = null;
+    marcarDica(cena, 'mover');
+    cena.tweens.add({ targets: grupo, alpha: 0, duration: 300, onComplete: () => grupo.destroy() });
+}
+
+function marcarDica(cena, chave) {
+    if (cena.dicasVistas.includes(chave)) return;
+    cena.dicasVistas.push(chave);
+    salvarArmazenado(chaveDicas, cena.dicasVistas);
+}
+
+// Poe uma dica na fila, se ela nunca apareceu.
+function pedirDica(cena, chave) {
+    if (cena.dicasVistas.includes(chave) || cena.filaDicas.includes(chave)) return;
+    cena.filaDicas.push(chave);
+}
+
+function atualizarDicas(cena, delta) {
+    const mao = cena.maoTutorial;
+    if (mao) {
+        const ponteiro = cena.input.activePointer;
+        const arrastando = (ponteiro.isDown && ponteiro.downY / escalaRenderizacao > config.height / 2) ||
+            cena.cursors.left.isDown || cena.cursors.right.isDown ||
+            cena.teclasLaterais.A.isDown || cena.teclasLaterais.D.isDown;
+        if (arrastando) mao.arrastou += delta;
+        if (mao.arrastou > 700) fecharMaoTutorial(cena);
+    }
+    // Procura, de vez em quando, coisas novas na tela que ainda nao tiveram dica.
+    cena.esperaDicas -= delta;
+    if (cena.esperaDicas <= 0) {
+        cena.esperaDicas = 300;
+        const vistas = cena.dicasVistas;
+        const camera = cena.cameras.main;
+        const naTela = (y) => y > camera.scrollY + 90 && y < camera.scrollY + config.height - 60;
+        for (const plataforma of cena.plataformas.getChildren()) {
+            if (!naTela(plataforma.y)) continue;
+            if (plataforma.fragil && !vistas.includes('rachado')) pedirDica(cena, 'rachado');
+            if (plataforma.mola && !vistas.includes('mola')) pedirDica(cena, 'mola');
+        }
+        if (cena.itensPoder.some((item) => naTela(item.y))) pedirDica(cena, 'poder');
+        if (cena.passaros.length > 0) pedirDica(cena, 'passaro');
+    }
+    // Uma dica por vez, e so depois que a mao da primeira partida sumiu.
+    if (!cena.dicaAberta && !cena.maoTutorial && cena.filaDicas.length > 0) {
+        mostrarDica(cena, cena.filaDicas.shift());
+    }
+}
+
+// Plaquinha de madeira embaixo do placar, por alguns segundos.
+function mostrarDica(cena, chave) {
+    marcarDica(cena, chave);
+    const texto = cena.add.text(0, 1, dicasJogo[chave], {
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', fontStyle: 'bold', color: '#4d2710',
+        align: 'center', wordWrap: { width: 290 }
+    }).setOrigin(0.5);
+    const largura = Math.min(330, texto.width + 34);
+    const altura = texto.height + 18;
+    const placa = cena.add.container(180, 108, [
+        cena.add.graphics().fillStyle(0x1a0e08, 0.35).fillRoundedRect(-largura / 2 + 1, -altura / 2 + 3, largura - 2, altura, 12),
+        cena.add.image(0, 0, texturaMadeira(cena, largura, altura, { raio: 12 })).setScale(1 / escalaMadeira),
+        texto
+    ]).setScrollFactor(0).setDepth(14).setAlpha(0).setScale(0.6);
+    cena.dicaAberta = placa;
+    cena.tweens.add({ targets: placa, alpha: 1, scale: 1, duration: 260, ease: 'Back.easeOut' });
+    cena.tweens.add({
+        targets: placa, alpha: 0, y: 96, delay: 3400, duration: 300, ease: 'Quad.easeIn',
+        onComplete: () => {
+            placa.destroy();
+            if (cena.dicaAberta === placa) cena.dicaAberta = null;
+        }
+    });
+}
+
+// Botoes de liga e desliga da musica, dos efeitos e da vibracao (esta so onde o aparelho vibra).
+function criarOpcoesSom(cena, y) {
+    const nomes = { musica: ['MÚSICA', 'LIGADA', 'DESLIGADA'], efeitos: ['EFEITOS', 'LIGADOS', 'DESLIGADOS'] };
+    if (navigator.vibrate) nomes.vibracao = ['VIBRAÇÃO', 'LIGADA', 'DESLIGADA'];
+    return Object.keys(nomes).map((chave, i) => {
+        const [nome, ligada, desligada] = nomes[chave];
+        const pintar = () => {
+            const ligado = som.opcoes[chave];
+            botao.rotulo.setText(`${nome}: ${ligado ? ligada : desligada}`);
+            botao.list[0].setTint(ligado ? 0xffffff : 0x8f8378);
+        };
+        const botao = criarBotaoMadeira(cena, 180, y + i * 46, 236, 38, '', () => {
+            som.alternarOpcao(chave);
+            pintar();
+            if (chave === 'musica' && cena.iniciado && !cena.pausado && !cena.morreu) {
+                if (som.opcoes.musica) musica.tocar(false);
+                else musica.parar();
+            }
+        }, { tamanho: 14 });
+        pintar();
+        return botao;
+    });
 }
 
 // Faixa curta no meio da tela para eventos da partida.
@@ -2007,6 +2520,7 @@ function encostouNoGuaxinim(cena) {
 
 function assustarGuaxinim(cena) {
     const guaxinim = cena.guaxinim;
+    registrarMissao(cena, 'sustos', 1);
     encerrarDistracao(guaxinim);
     const x = guaxinim.visual.x;
     const y = guaxinim.visual.y;
@@ -2026,7 +2540,7 @@ function assustarGuaxinim(cena) {
 }
 
 function soltarGranuladoDoPacote(cena, x, y, indice) {
-    const granulado = cena.add.image(x, y, 'moeda').setScale(26 / 808).setDepth(6);
+    const granulado = cena.add.image(x, y, 'moeda').setScale(26 / larguraGranulado).setDepth(6);
     // Abre em leque para cima e depois cada um voa ate o gato.
     const angulo = Phaser.Math.DegToRad(-90 + (indice - (granuladosSusto - 1) / 2) * 30 +
         Phaser.Math.FloatBetween(-8, 8));
@@ -2049,7 +2563,7 @@ function soltarGranuladoDoPacote(cena, x, y, indice) {
                     granulado.destroy();
                     if (cena.morreu) return;
                     somarGranulado(cena);
-                    som.granulado(cena.comboGranulado);
+                    som.granulado(indice * 2);
                     cena.efeitos.brilho.explode(4, cena.caixa.x, cena.caixa.y);
                 }
             });
@@ -2179,12 +2693,12 @@ function mostrarMorte(cena) {
     const sombra = cena.add.rectangle(180, config.height / 2, 360, config.height, 0x160d08, 0.82)
         .setScrollFactor(0).setDepth(30).setAlpha(0);
     const fundo = cena.add.graphics()
-        .fillStyle(0x3b2418, 1).fillRoundedRect(-150, -170, 300, 340, 20)
-        .lineStyle(3, 0xffe1a6, 0.9).strokeRoundedRect(-150, -170, 300, 340, 20);
-    const titulo = cena.add.text(0, -132, 'Você perdeu',
+        .fillStyle(0x3b2418, 1).fillRoundedRect(-150, -200, 300, 400, 20)
+        .lineStyle(3, 0xffe1a6, 0.9).strokeRoundedRect(-150, -200, 300, 400, 20);
+    const titulo = cena.add.text(0, -162, 'Você perdeu',
         estilo(30, corTexto, { fontStyle: 'bold' })).setOrigin(0.5);
-    const icone = cena.add.image(0, -72, 'moeda').setScale(40 / 808);
-    const pontos = cena.add.text(0, -72, '0',
+    const icone = cena.add.image(0, -104, 'moeda').setScale(40 / larguraGranulado);
+    const pontos = cena.add.text(0, -104, '0',
         estilo(36, '#ffffff', { fontStyle: 'bold' })).setOrigin(0, 0.5);
     const centralizarPontos = () => {
         const largura = 40 + 10 + pontos.width;
@@ -2192,12 +2706,12 @@ function mostrarMorte(cena) {
         pontos.x = icone.x + 30;
     };
     centralizarPontos();
-    const troncos = cena.add.text(0, -26, 'Troncos: ' + cena.contador,
+    const troncos = cena.add.text(0, -60, 'Troncos: ' + cena.contador,
         estilo(17, '#f4ddc9')).setOrigin(0.5);
-    const recorde = cena.add.text(0, 2,
+    const recorde = cena.add.text(0, -32,
         `Recorde: ${contar(cena.recorde.granulados, 'granulado')} · ${contar(cena.recorde.troncos, 'tronco')}`,
         estilo(13, '#c9a98a')).setOrigin(0.5);
-    const cofrinho = cena.add.text(0, 26, `Cofrinho: ${contar(loja.saldo, 'granulado')}`,
+    const cofrinho = cena.add.text(0, -8, `Cofrinho: ${contar(loja.saldo, 'granulado')}`,
         estilo(13, '#ffd24a', { fontStyle: 'bold' })).setOrigin(0.5);
     let reiniciando = false;
     let lojaAberta = false;
@@ -2208,25 +2722,39 @@ function mostrarMorte(cena) {
         limparEventos();
         cena.scene.restart({ reiniciar: true });
     };
-    const convite = criarBotaoMadeira(cena, 0, 76, 240, 52, 'JOGAR DE NOVO', jogarDeNovo, { tamanho: 19 });
-    const botaoLoja = criarBotaoMadeira(cena, -62, 134, 116, 44, 'LOJA', () => {
+    const convite = criarBotaoMadeira(cena, 0, 44, 240, 52, 'JOGAR DE NOVO', jogarDeNovo, { tamanho: 19 });
+    // A imagem do resultado fica pronta antes do toque: no iPhone o compartilhamento
+    // precisa sair direto do toque, sem esperar a imagem ser gerada.
+    let cartao = null;
+    cena.time.delayedCall(300, () => {
+        gerarCartaoResultado(cena).then((arquivo) => { cartao = arquivo; }).catch(() => {});
+    });
+    const avisoCompartilhar = cena.add.text(0, 186, '', estilo(12, '#ffd24a', { fontStyle: 'bold' })).setOrigin(0.5);
+    const botaoCompartilhar = criarBotaoMadeira(cena, 0, 100, 240, 42, 'COMPARTILHAR', () => {
+        if (reiniciando || lojaAberta) return;
+        compartilharResultado(cena, cartao).then((resultado) => {
+            const textos = { copiado: 'Link copiado! Cole onde quiser.', falhou: 'Não deu para compartilhar aqui.' };
+            if (textos[resultado]) avisoCompartilhar.setText(textos[resultado]);
+        });
+    }, { tamanho: 15, cor: 0xb8e0a8 });
+    const botaoLoja = criarBotaoMadeira(cena, -62, 154, 116, 44, 'LOJA', () => {
         if (reiniciando || lojaAberta) return;
         lojaAberta = true;
         mostrarLoja(cena, () => {
             lojaAberta = false;
         }, 40);
     }, { tamanho: 15, cor: 0xd9c2a8 });
-    const botaoMenu = criarBotaoMadeira(cena, 62, 134, 116, 44, 'MENU', () => {
+    const botaoMenu = criarBotaoMadeira(cena, 62, 154, 116, 44, 'MENU', () => {
         if (reiniciando || lojaAberta) return;
         reiniciando = true;
         limparEventos();
         voltarAoMenu(cena);
     }, { tamanho: 15, cor: 0xd9c2a8 });
     // Os botoes so respondem depois que o painel aparece, para nao tocar sem querer ao cair.
-    const botoesMorte = [convite, botaoLoja, botaoMenu];
+    const botoesMorte = [convite, botaoCompartilhar, botaoLoja, botaoMenu];
     botoesMorte.forEach((botao) => botao.disableInteractive());
     const painel = cena.add.container(180, config.height / 2,
-        [fundo, titulo, icone, pontos, troncos, recorde, cofrinho, ...botoesMorte])
+        [fundo, titulo, icone, pontos, troncos, recorde, cofrinho, ...botoesMorte, avisoCompartilhar])
         .setScrollFactor(0).setDepth(31).setScale(0.6).setAlpha(0);
 
     cena.tweens.add({ targets: sombra, alpha: 1, duration: 260 });
@@ -2250,7 +2778,7 @@ function mostrarMorte(cena) {
         yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
     });
     if (novoRecorde) {
-        const selo = cena.add.text(0, -172, 'NOVO RECORDE!', estilo(16, '#3b2418', {
+        const selo = cena.add.text(0, -202, 'NOVO RECORDE!', estilo(16, '#3b2418', {
             fontStyle: 'bold', backgroundColor: '#ffd24a', padding: { x: 12, y: 6 }
         })).setOrigin(0.5).setAngle(-5);
         painel.add(selo);
@@ -2279,8 +2807,17 @@ function mostrarMorte(cena) {
 
 function criarPlataforma(cena, x, y, largura, chao = false) {
     const numero = chao ? 0 : ++cena.totalTroncos;
+    // Troncos especiais aparecem de tempos em tempos e nunca sao rachados.
+    let especial = null;
+    if (!chao && numero >= cena.proximaMola) {
+        especial = 'mola';
+        cena.proximaMola = numero + Phaser.Math.Between(12, 20);
+    } else if (ativarBalanco && !chao && numero >= cena.proximoBalanco) {
+        especial = 'balanco';
+        cena.proximoBalanco = numero + Phaser.Math.Between(14, 22);
+    }
     // O chao e os primeiros 20 troncos sao resistentes.
-    const fragil = numero > 20 && Phaser.Math.Between(1, 10) <= 8;
+    const fragil = !especial && numero > 20 && Phaser.Math.Between(1, 10) <= 8;
     const textura = fragil ? 'troncoRachado' : 'troncoLiso';
     // Troncos mais grossos deixam as rachaduras mais visiveis.
     const altura = chao ? 16 : 32;
@@ -2299,7 +2836,19 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     // No espaco, duas a cada tres se movem, e mais longe.
     const noEspaco = cena.ceu && cena.ceu.fase >= faseEspaco;
     const amplitude = noEspaco ? 55 : 40;
-    if (!chao && (numero % 3 === 0 || (noEspaco && numero % 3 === 1))) {
+    if (especial === 'balanco') {
+        // Pendurado em dois cipos: vai e volta num arco, sempre na horizontal.
+        const margemMovimento = plataforma.displayWidth / 2 + 12 + 45;
+        plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento, config.width - margemMovimento);
+        plataforma.body.updateFromGameObject();
+        plataforma.movimento = {
+            tipo: 'balanco', centro: plataforma.x, yBase: plataforma.y, comprimento: 260,
+            fase: Phaser.Math.FloatBetween(0, Math.PI * 2), sentido: 1, amplitude: 45, velocidade: 1.8
+        };
+        plataforma.cipos = cena.add.graphics().setDepth(-0.5);
+        plataforma.once('destroy', () => plataforma.cipos.destroy());
+        desenharCipos(plataforma);
+    } else if (!chao && (numero % 3 === 0 || (noEspaco && numero % 3 === 1))) {
         const margemMovimento = plataforma.displayWidth / 2 + 12 + amplitude;
         plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento,
             config.width - margemMovimento);
@@ -2312,22 +2861,62 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
             velocidade: 1.2
         };
     }
+    if (especial === 'mola') {
+        plataforma.mola = cena.add.image(plataforma.x, topoTronco(plataforma) + 3, 'fx_mola')
+            .setOrigin(0.5, 1).setScale(1 / 3).setDepth(0.4);
+        plataforma.once('destroy', () => plataforma.mola.destroy());
+    }
     plataforma.body.checkCollision.down = false;
     plataforma.body.checkCollision.left = false;
     plataforma.body.checkCollision.right = false;
+    if (chao) return;
     // Especial raro: intervalo aleatorio de 18 a 30 plataformas entre dourados.
-    const dourada = !chao && numero >= cena.proximoGranuladoDourado;
+    const dourada = numero >= cena.proximoGranuladoDourado;
     if (dourada) cena.proximoGranuladoDourado = numero + Phaser.Math.Between(18, 30);
-    if (!chao && (dourada || Phaser.Math.Between(1, 100) <= 40)) {
+    if (ativarPoderes && !dourada && numero >= cena.proximoPoder) {
+        cena.proximoPoder = numero + Phaser.Math.Between(22, 34);
+        criarItemPoder(cena, plataforma);
+    } else if (dourada || cena.poderes.pacote || Phaser.Math.Between(1, 100) <= 40) {
+        // Com o pacote furado, todo tronco novo ganha granulado.
         criarMoeda(cena, plataforma, dourada);
     }
 }
 
+// Dois cipos descem dos galhos la de cima ate as pontas do tronco do balanco.
+function desenharCipos(plataforma) {
+    const movimento = plataforma.movimento;
+    const g = plataforma.cipos;
+    const afastamento = plataforma.displayWidth * 0.34;
+    const topo = movimento.yBase - movimento.comprimento;
+    g.clear();
+    [-1, 1].forEach((lado) => {
+        const baixoX = plataforma.x + lado * afastamento;
+        const baixoY = plataforma.y - 4;
+        const cimaX = movimento.centro + lado * afastamento;
+        g.lineStyle(5, 0x1f3414, 1).lineBetween(baixoX, baixoY, cimaX, topo);
+        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(baixoX, baixoY, cimaX, topo);
+        // Folhinhas ao longo do cipo.
+        for (let i = 1; i <= 3; i++) {
+            const t = i / 4;
+            const fx = Phaser.Math.Linear(baixoX, cimaX, t);
+            const fy = Phaser.Math.Linear(baixoY, topo, t);
+            const virada = i % 2 ? 1 : -1;
+            g.fillStyle(0x1f3414, 1).fillEllipse(fx + virada * 5, fy, 11, 6);
+            g.fillStyle(0x7cc242, 1).fillEllipse(fx + virada * 5, fy, 8, 4);
+        }
+        // O cipo continua reto ate passar do alto da tela, nunca termina no meio do caminho.
+        const alto = Math.min(topo, plataforma.scene.cameras.main.scrollY - 20);
+        g.lineStyle(5, 0x1f3414, 1).lineBetween(cimaX, topo, cimaX, alto);
+        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(cimaX, topo, cimaX, alto);
+    });
+}
+
 function criarMoeda(cena, plataforma, dourada = false) {
     const moeda = cena.add.image(plataforma.x, plataforma.y - 60, dourada ? 'moedaDourada' : 'moeda')
-        .setScale(38 / 808).setDepth(2);
+        .setScale(38 / larguraGranulado).setDepth(2);
     moeda.dourada = dourada;
     moeda.plataforma = plataforma;
+    plataforma.temItem = true;
     moeda.yBase = moeda.y;
     moeda.fase = Phaser.Math.FloatBetween(0, Math.PI * 2);
     if (dourada) {
@@ -2415,7 +3004,29 @@ function atualizarMoedas(cena, delta) {
             moeda.destroy();
             continue;
         }
-        if (moeda.plataforma.active) moeda.x = moeda.plataforma.x;
+        if (moeda.atraida) {
+            // O ima puxa o granulado ate o gato, cada vez mais rapido.
+            const corpo = cena.caixa.body;
+            moeda.velocidadeIma = Math.min(900, (moeda.velocidadeIma || 180) + delta * 1.4);
+            const passo = moeda.velocidadeIma * delta / 1000;
+            const dx = corpo.center.x - moeda.x;
+            const dy = corpo.center.y - moeda.y;
+            const distancia = Math.hypot(dx, dy) || 1;
+            moeda.x += dx / distancia * Math.min(passo, distancia);
+            moeda.y += dy / distancia * Math.min(passo, distancia);
+            moeda.yBase = moeda.y;
+            moeda.angle += delta * 0.6;
+            if (moeda.dourada) atualizarBrilhoGranulado(moeda, tempo);
+            moeda.body.updateFromGameObject();
+            continue;
+        }
+        if (moeda.plataforma.active) {
+            moeda.x = moeda.plataforma.x;
+            // O balanco sobe um pouco nas pontas do arco; o granulado vai junto.
+            if (moeda.plataforma.movimento && moeda.plataforma.movimento.tipo === 'balanco') {
+                moeda.yBase = moeda.plataforma.y - 60;
+            }
+        }
         moeda.y = moeda.yBase + Math.sin(tempo * 3 + moeda.fase) * 5;
         moeda.angle = Math.sin(tempo * 6 + moeda.fase) * 12;
         if (moeda.dourada) atualizarBrilhoGranulado(moeda, tempo);
@@ -2426,12 +3037,23 @@ function atualizarMoedas(cena, delta) {
 
 function atualizarPlataformasMoveis(cena, delta) {
     for (const plataforma of cena.plataformas.getChildren()) {
+        // A mola acompanha o tronco que se mexe.
+        if (plataforma.mola) plataforma.mola.x = plataforma.x;
         const movimento = plataforma.movimento;
         if (!movimento) continue;
         movimento.fase += delta / 1000 * movimento.velocidade * cena.velocidadeJogo;
         const margem = plataforma.displayWidth / 2 + 12;
         const amplitude = Math.max(0, Math.min(movimento.amplitude,
             movimento.centro - margem, config.width - margem - movimento.centro));
+        if (movimento.tipo === 'balanco') {
+            // Pendulo: anda no arco dos cipos e sobe um pouquinho nas pontas.
+            const angulo = Math.asin(amplitude / movimento.comprimento) * Math.sin(movimento.fase);
+            plataforma.x = movimento.centro + Math.sin(angulo) * movimento.comprimento;
+            plataforma.y = movimento.yBase - movimento.comprimento * (1 - Math.cos(angulo));
+            plataforma.body.updateFromGameObject();
+            desenharCipos(plataforma);
+            continue;
+        }
         plataforma.x = movimento.centro + Math.sin(movimento.fase) * amplitude * movimento.sentido;
         // O corpo estatico acompanha a imagem para manter o salto no lugar certo.
         plataforma.body.updateFromGameObject();
@@ -2443,27 +3065,94 @@ function coletarMoeda(caixa, moeda) {
     if (!cena.iniciado || cena.morreu || !moeda.active || moeda.coletada) return;
     moeda.coletada = true;
     moeda.body.enable = false;
-    somarGranulado(cena);
+    const vale = contarCombo(cena);
+    somarGranulado(cena, vale);
     cena.efeitos.brilho.explode(moeda.dourada ? 22 : 8, moeda.x, moeda.y);
     if (moeda.dourada) {
+        registrarMissao(cena, 'dourados', 1);
         aplicarImpulsoDourado(caixa);
         mostrarPopup(cena, moeda.x, moeda.y - 14, 'SUPER PULO!', '#ffd24a', 18);
     } else {
-        som.granulado(cena.comboGranulado);
-        mostrarPopup(cena, moeda.x, moeda.y - 10, '+1');
+        som.granulado(cena.combo.seguidos);
+        mostrarPopup(cena, moeda.x, moeda.y - 10, '+' + vale,
+            vale === 3 ? '#ffd24a' : vale === 2 ? '#ffb36b' : corTexto, 16 + (vale - 1) * 3);
     }
     voarParaPlacar(cena, moeda.x, moeda.y, moeda.texture.key, moeda.scaleX);
     moeda.destroy();
 }
 
-function somarGranulado(cena) {
-    cena.totalMoedas += 1;
-    // Coletas em sequencia rapida formam um combo sonoro.
-    const agora = cena.time.now;
-    cena.comboGranulado = agora - cena.ultimoGranulado < 1800 ? cena.comboGranulado + 1 : 0;
-    cena.ultimoGranulado = agora;
+function somarGranulado(cena, valor = 1) {
+    cena.totalMoedas += valor;
+    cena.granuladosPegos += valor;
+    registrarMissao(cena, 'granulados', cena.granuladosPegos);
     atualizarHud(cena);
     pulsarHud(cena, cena.hud.granulados);
+}
+
+// Mais um granulado na sequencia; devolve quanto ele vale (x1, x2 ou x3).
+function contarCombo(cena) {
+    const combo = cena.combo;
+    combo.seguidos += 1;
+    if (combo.seguidos === 3) pedirDica(cena, 'combo');
+    registrarMissao(cena, 'seguidos', combo.seguidos);
+    const nivel = niveisCombo.find((item) => combo.seguidos >= item.seguidos);
+    const vale = nivel ? nivel.vale : 1;
+    if (vale > combo.vale) {
+        const caixa = cena.caixa;
+        mostrarPopup(cena, caixa.x, caixa.y - 70, `COMBO x${vale}!`, vale === 3 ? '#ffd24a' : '#ffb36b', 22);
+        cena.efeitos.brilho.explode(14, caixa.x, caixa.y - 20);
+        som.combo(vale);
+    }
+    combo.vale = vale;
+    atualizarCombo(cena, true);
+    return vale;
+}
+
+// Um granulado ficou para tras (ou veio uma bicada): a sequencia recomeca.
+function quebrarCombo(cena) {
+    const combo = cena.combo;
+    if (combo.seguidos === 0) return;
+    if (combo.vale > 1) {
+        mostrarPopup(cena, cena.caixa.x, cena.caixa.y - 70, 'combo perdido', '#f4ddc9', 14);
+        som.comboPerdido();
+    }
+    combo.seguidos = 0;
+    combo.vale = 1;
+    atualizarCombo(cena, false);
+}
+
+// Etiqueta embaixo da placa de granulados: a sequencia atual e quanto cada um vale.
+function atualizarCombo(cena, pulsar) {
+    const hud = cena.hud;
+    if (!hud) return;
+    const combo = cena.combo;
+    const etiqueta = hud.combo;
+    cena.tweens.killTweensOf(etiqueta);
+    if (combo.seguidos < 2) {
+        if (etiqueta.visible) {
+            cena.tweens.add({
+                targets: etiqueta, alpha: 0, x: { from: 174, to: 180 }, duration: 260,
+                ease: 'Sine.easeInOut', onComplete: () => etiqueta.setVisible(false)
+            });
+        }
+        return;
+    }
+    const falta = niveisCombo.slice().reverse().find((item) => combo.seguidos < item.seguidos);
+    hud.textoCombo.setText(combo.vale > 1
+        ? `COMBO x${combo.vale} · ${combo.seguidos}` : `${combo.seguidos} seguidos`)
+        .setColor(combo.vale === 3 ? '#ffd24a' : combo.vale === 2 ? '#ffb36b' : '#fff4d6');
+    // Barrinha ate o proximo nivel do combo.
+    const barra = hud.barraCombo;
+    const anterior = niveisCombo.slice().reverse().filter((item) => combo.seguidos >= item.seguidos).pop();
+    const inicio = anterior ? anterior.seguidos : 0;
+    const progresso = falta ? (combo.seguidos - inicio) / (falta.seguidos - inicio) : 1;
+    barra.clear().fillStyle(0x1a0e08, 0.6).fillRoundedRect(-40, 8, 80, 4, 2);
+    barra.fillStyle(combo.vale === 1 ? 0xffb36b : 0xffd24a, 1).fillRoundedRect(-40, 8, 80 * progresso, 4, 2);
+    etiqueta.setVisible(true).setAlpha(1).setX(180);
+    if (pulsar) {
+        etiqueta.setScale(1.2);
+        cena.tweens.add({ targets: etiqueta, scale: 1, duration: 260, ease: 'Back.easeOut' });
+    }
 }
 
 function configurarComandoSecreto(cena) {
@@ -2498,6 +3187,214 @@ function aplicarImpulsoDourado(caixa, forca = 640) {
         targets: onda, scaleX: 3, scaleY: 1.3, alpha: 0,
         duration: 350, ease: 'Quad.easeOut', onComplete: () => onda.destroy()
     });
+}
+
+// A mola encolhe com o peso e joga o gato bem mais alto que o pulo normal.
+function pularNaMola(cena, plataforma) {
+    const caixa = cena.caixa;
+    caixa.body.setVelocityY(-impulsoMola * cena.velocidadeJogo);
+    som.mola();
+    deformarGato(cena, 1.45, 0.6, 520);
+    cena.efeitos.poeira.explode(9, caixa.x, caixa.y + 36);
+    mostrarPopup(cena, plataforma.x, topoTronco(plataforma) - 24, 'BOING!', '#ffd24a', 16);
+    const mola = plataforma.mola;
+    cena.tweens.killTweensOf(mola);
+    mola.setScale(1 / 3, 0.45 / 3);
+    cena.tweens.add({
+        targets: mola, scaleY: 1 / 3, duration: 650,
+        ease: 'Elastic.easeOut', easeParams: [1.3, 0.3]
+    });
+}
+
+// Bolha com um poder, flutuando no meio do tronco. Escudo so depois que os passaros chegam.
+function criarItemPoder(cena, plataforma) {
+    const opcoes = Object.keys(poderes).filter((tipo) => tipo !== cena.ultimoPoder &&
+        (tipo !== 'escudo' || plataforma.numero >= troncoPassaros));
+    const tipo = Phaser.Utils.Array.GetRandom(opcoes);
+    cena.ultimoPoder = tipo;
+    const item = cena.add.container(plataforma.x, plataforma.y - 62, [
+        cena.add.image(0, 0, 'pw_brilho').setScale(1 / 3).setTint(poderes[tipo].cor).setAlpha(0.55),
+        cena.add.image(0, 0, 'pw_' + tipo).setScale(1 / 3),
+        cena.add.image(0, 0, 'pw_bolha').setScale(1 / 3)
+    ]).setDepth(2.2);
+    item.tipo = tipo;
+    item.plataforma = plataforma;
+    item.yBase = item.y;
+    item.fase = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    plataforma.temItem = true;
+    cena.itensPoder.push(item);
+}
+
+function atualizarItensPoder(cena, delta) {
+    const tempo = cena.tempoMoedas / 1000;
+    const corpo = cena.caixa.body;
+    const limite = cena.cameras.main.scrollY + config.height + 60;
+    for (let i = cena.itensPoder.length - 1; i >= 0; i--) {
+        const item = cena.itensPoder[i];
+        if (item.yBase > limite) {
+            item.destroy();
+            cena.itensPoder.splice(i, 1);
+            continue;
+        }
+        if (item.plataforma.active) {
+            item.x = item.plataforma.x;
+            item.yBase = item.plataforma.y - 62;
+        }
+        item.y = item.yBase + Math.sin(tempo * 2.4 + item.fase) * 6;
+        // A bolha balanca como gelatina e o brilho de tras gira devagar.
+        const bolha = item.list[2];
+        bolha.setScale((1 + Math.sin(tempo * 5 + item.fase) * 0.05) / 3,
+            (1 - Math.sin(tempo * 5 + item.fase) * 0.05) / 3);
+        item.list[0].angle = tempo * 40;
+        item.list[1].angle = Math.sin(tempo * 3 + item.fase) * 10;
+        if (!cena.morreu && Math.hypot(corpo.center.x - item.x, corpo.center.y - item.y) < 46) {
+            cena.itensPoder.splice(i, 1);
+            pegarPoder(cena, item);
+        }
+    }
+}
+
+function pegarPoder(cena, item) {
+    const dados = poderes[item.tipo];
+    const anel = cena.add.circle(item.x, item.y, 24).setStrokeStyle(3, 0xffffff, 0.9).setDepth(6);
+    cena.tweens.add({
+        targets: anel, scale: 2.2, alpha: 0, duration: 380, ease: 'Quad.easeOut',
+        onComplete: () => anel.destroy()
+    });
+    cena.efeitos.brilho.explode(16, item.x, item.y);
+    som.poder();
+    mostrarFaixa(cena, dados.nome + '!', dados.dica, '#' + dados.cor.toString(16).padStart(6, '0'));
+    registrarMissao(cena, 'poderes', 1);
+    item.destroy();
+    ativarPoder(cena, item.tipo);
+}
+
+// Pegar de novo um poder que ja esta ativo so renova o tempo.
+function ativarPoder(cena, tipo) {
+    const dados = poderes[tipo];
+    const atual = cena.poderes[tipo];
+    if (atual) {
+        atual.resta = dados.duracao;
+        return;
+    }
+    const poder = { resta: dados.duracao, efeito: null, tempo: 0 };
+    cena.poderes[tipo] = poder;
+    if (tipo === 'escudo') {
+        poder.efeito = cena.add.image(cena.gato.x, cena.gato.y - 40, 'pw_campo').setScale(0.2 / 3).setDepth(5.2);
+        cena.tweens.add({ targets: poder.efeito, scale: 1 / 3, duration: 380, ease: 'Back.easeOut' });
+    } else if (tipo === 'ima') {
+        poder.efeito = cena.add.graphics().setDepth(4.8);
+    } else if (tipo === 'pacote') {
+        furarPacote(cena);
+    }
+    // Icone redondo no placar, com um anel que esvazia conforme o tempo acaba.
+    const anel = cena.add.graphics();
+    poder.icone = cena.add.container(0, 66, [
+        cena.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 17),
+        cena.add.image(0, 0, texturaMadeira(cena, 34, 34, { raio: 15 })).setScale(1 / escalaMadeira),
+        cena.add.image(0, 0, 'pw_' + tipo).setScale(20 / 90),
+        anel
+    ]).setScrollFactor(0).setDepth(10).setScale(0);
+    poder.anel = anel;
+    cena.tweens.add({ targets: poder.icone, scale: 1, duration: 300, ease: 'Back.easeOut' });
+    organizarIconesPoder(cena);
+}
+
+function organizarIconesPoder(cena) {
+    Object.values(cena.poderes).forEach((poder, i) => {
+        cena.tweens.add({ targets: poder.icone, x: 30 + i * 40, duration: 200, ease: 'Sine.easeOut' });
+    });
+}
+
+function encerrarPoder(cena, tipo, animar = true) {
+    const poder = cena.poderes[tipo];
+    if (!poder) return;
+    delete cena.poderes[tipo];
+    const efeito = poder.efeito;
+    if (efeito && animar && tipo === 'escudo') {
+        cena.tweens.add({
+            targets: efeito, scale: 1.5 / 3, alpha: 0, duration: 260, onComplete: () => efeito.destroy()
+        });
+    } else if (efeito) {
+        efeito.destroy();
+    }
+    const icone = poder.icone;
+    cena.tweens.add({ targets: icone, scale: 0, duration: 200, ease: 'Back.easeIn', onComplete: () => icone.destroy() });
+    if (animar && tipo !== 'escudo') som.fimPoder();
+    organizarIconesPoder(cena);
+}
+
+function atualizarPoderes(cena, delta) {
+    const segundos = delta / 1000;
+    const corpo = cena.caixa.body;
+    for (const tipo of Object.keys(cena.poderes)) {
+        const poder = cena.poderes[tipo];
+        const dados = poderes[tipo];
+        poder.resta -= segundos;
+        poder.tempo += segundos;
+        if (poder.resta <= 0) {
+            encerrarPoder(cena, tipo);
+            continue;
+        }
+        const fracao = poder.resta / dados.duracao;
+        poder.anel.clear().lineStyle(3, 0x1a0e08, 0.5).strokeCircle(0, 0, 15);
+        poder.anel.lineStyle(3, dados.cor, 1).beginPath()
+            .arc(0, 0, 15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fracao, false).strokePath();
+        // Pisca nos ultimos 2 segundos, avisando que vai acabar.
+        const acabando = poder.resta < 2 && Math.floor(poder.resta * 6) % 2 === 0;
+        poder.icone.setAlpha(acabando ? 0.45 : 1);
+        if (tipo === 'escudo') {
+            poder.efeito.setPosition(cena.gato.x, cena.gato.y - 40)
+                .setAngle(poder.tempo * 30).setAlpha(acabando ? 0.35 : 0.8 + Math.sin(poder.tempo * 6) * 0.2);
+        } else if (tipo === 'ima') {
+            // Ondas vermelhas fechando em volta do gato mostram o alcance do ima.
+            const g = poder.efeito.clear();
+            for (let k = 0; k < 2; k++) {
+                const t = (poder.tempo * 0.9 + k / 2) % 1;
+                g.lineStyle(2, dados.cor, (acabando ? 0.15 : 0.35) * t).strokeCircle(corpo.center.x, corpo.center.y,
+                    raioIma * (1 - t) + 20);
+            }
+            for (const moeda of cena.moedas.getChildren()) {
+                if (moeda.atraida || moeda.coletada || moeda.escondida || !moeda.visible) continue;
+                if (Math.hypot(moeda.x - corpo.center.x, moeda.y - corpo.center.y) < raioIma) moeda.atraida = true;
+            }
+        } else if (tipo === 'pacote' && cena.guaxinim) {
+            // O pacote vai perdendo granulados pelo furo.
+            poder.proximoGranulo = (poder.proximoGranulo || 0) - segundos;
+            if (poder.proximoGranulo <= 0) {
+                poder.proximoGranulo = 0.14;
+                const guaxinim = cena.guaxinim;
+                cena.efeitos.granulos.explode(1, guaxinim.visual.x + guaxinim.direcao * 19, guaxinim.visual.y - 14);
+            }
+        }
+    }
+}
+
+// O pacote do guaxinim fura: todo tronco a frente ganha um granulado.
+function furarPacote(cena) {
+    for (const plataforma of cena.plataformas.getChildren()) {
+        if (plataforma.numero > cena.ultimoTronco && !plataforma.temItem) criarMoeda(cena, plataforma);
+    }
+    const guaxinim = cena.guaxinim;
+    if (!guaxinim) return;
+    guaxinim.expressao = 'guaxinim_susto';
+    guaxinim.expressaoAte = guaxinim.tempo + 1.2;
+    mostrarPopup(cena, guaxinim.visual.x, guaxinim.visual.y - 66, 'meu pacote!', '#f2f2f2', 14);
+    cena.efeitos.granulos.explode(6, guaxinim.visual.x + guaxinim.direcao * 19, guaxinim.visual.y - 20);
+}
+
+// O escudo segura a bicada: o passaro (ou OVNI) bate, volta e vai embora.
+function defenderComEscudo(cena, passaro) {
+    passaro.acertou = true;
+    passaro.direcao *= -1;
+    passaro.imagem.setFlipX(passaro.direcao < 0);
+    cena.caixa.protegidoAte = cena.time.now + 700;
+    const efeito = cena.poderes.escudo.efeito;
+    cena.efeitos.brilho.explode(14, efeito.x, efeito.y);
+    mostrarPopup(cena, cena.caixa.x, cena.caixa.y - 60, 'DEFENDEU!', '#7cc8ff', 18);
+    cena.cameras.main.shake(100, 0.003);
+    som.escudo();
+    encerrarPoder(cena, 'escudo');
 }
 
 function ajustarLarguraTronco(cena, plataforma) {
@@ -2717,7 +3614,7 @@ function atualizarEspaco(cena, delta, espaco, soltar) {
     const segundos = delta / 1000;
     // Folhas caindo nao combinam com o espaco.
     const folhas = cena.folhasJogo;
-    if (folhas && espaco > 0.5 === folhas.emitting) {
+    if (folhas && folhas.active && espaco > 0.5 === folhas.emitting) {
         if (folhas.emitting) folhas.stop();
         else folhas.start();
     }
@@ -2899,7 +3796,7 @@ function criarEstrelaCadente(cena) {
 function texturaMadeira(cena, largura, altura, { raio = 12, escurecer = 0, borda = 0x4d2710 } = {}) {
     const chave = `madeira_${largura}_${altura}_${raio}_${escurecer}_${borda}`;
     if (cena.textures.exists(chave)) return chave;
-    const e = 2;
+    const e = escalaMadeira;
     const textura = cena.textures.createCanvas(chave, largura * e, altura * e);
     const ctx = textura.getContext();
     const fonte = cena.textures.get('introducao').getSourceImage();
@@ -2938,7 +3835,7 @@ function texturaMadeira(cena, largura, altura, { raio = 12, escurecer = 0, borda
 // Botao de madeira com texto; da um pulinho ao toque. cor pinta a madeira (0xffffff = natural).
 function criarBotaoMadeira(cena, x, y, largura, altura, texto, acao, { tamanho = 17, cor = 0xffffff } = {}) {
     const fundo = cena.add.image(0, 0, texturaMadeira(cena, largura, altura, { raio: Math.min(14, altura / 2 - 2) }))
-        .setScale(0.5).setTint(cor);
+        .setScale(1 / escalaMadeira).setTint(cor);
     const rotulo = cena.add.text(0, 1, texto, {
         resolution: 4, fontFamily: 'Arial Black, Arial, sans-serif', fontSize: tamanho + 'px', fontStyle: 'bold',
         color: '#4d2710', stroke: '#f6c98f', strokeThickness: 3
@@ -2958,6 +3855,172 @@ function criarBotaoMadeira(cena, x, y, largura, altura, texto, acao, { tamanho =
     });
     botao.rotulo = rotulo;
     return botao;
+}
+
+// Tela das missoes do dia: cada uma com a barra de progresso e o premio.
+function mostrarMissoes(cena, aoFechar, profundidade = 30) {
+    const altura = config.height;
+    const tela = cena.add.container(0, 0).setScrollFactor(0).setDepth(profundidade);
+    const estado = lerProgressoMissoes();
+    const missoes = missoesDoDia();
+    const estilo = (tamanho, cor, extra = {}) => ({
+        resolution: 4, fontFamily: 'Arial', fontSize: tamanho + 'px', color: cor, ...extra
+    });
+    tela.add(cena.add.rectangle(180, altura / 2, 360 + 80, altura + 80, 0x1a0e08, 0.82).setScrollFactor(0).setInteractive());
+    const meio = altura / 2;
+    tela.add(cena.add.image(180, meio, texturaMadeira(cena, 328, 380, { raio: 20 })).setScale(1 / escalaMadeira));
+    tela.add(cena.add.text(180, meio - 158, 'MISSÕES DE HOJE', {
+        resolution: 4, fontFamily: 'Arial Black, Arial, sans-serif', fontSize: '21px', fontStyle: 'bold',
+        color: '#4d2710', stroke: '#f6c98f', strokeThickness: 3
+    }).setOrigin(0.5));
+    missoes.forEach((missao, i) => {
+        const y = meio - 92 + i * 80;
+        const feita = estado.feitas.includes(missao.id);
+        const valor = Math.min(missao.meta, estado.progresso[missao.id] || 0);
+        const linha = cena.add.container(180, y);
+        linha.add(cena.add.graphics().fillStyle(0xfff4d6, 1).fillRoundedRect(-146, -32, 292, 66, 12)
+            .lineStyle(2.5, feita ? 0x3f8a4c : 0x4d2710, 1).strokeRoundedRect(-146, -32, 292, 66, 12));
+        linha.add(cena.add.text(-134, -18, missao.texto, estilo(13, '#4d2710', { fontStyle: 'bold', wordWrap: { width: 190 } }))
+            .setOrigin(0, 0.5));
+        // Barra de progresso.
+        linha.add(cena.add.graphics().fillStyle(0xd9c2a8, 1).fillRoundedRect(-134, 10, 170, 12, 6)
+            .fillStyle(feita ? 0x3f8a4c : 0xe39b3b, 1).fillRoundedRect(-134, 10, Math.max(12, 170 * valor / missao.meta), 12, 6));
+        linha.add(cena.add.text(44, 16, `${valor}/${missao.meta}`, estilo(12, '#7a4a2a', { fontStyle: 'bold' })).setOrigin(0, 0.5));
+        if (feita) {
+            linha.add(cena.add.text(106, 0, 'Feita!', estilo(15, '#2f6b3a', { fontStyle: 'bold' })).setOrigin(0.5));
+        } else {
+            linha.add(cena.add.image(90, 0, 'moeda').setScale(22 / larguraGranulado));
+            linha.add(cena.add.text(104, 1, '+' + missao.premio, estilo(15, '#4d2710', { fontStyle: 'bold' })).setOrigin(0, 0.5));
+        }
+        linha.setAlpha(0).setScale(0.9);
+        cena.tweens.add({ targets: linha, alpha: 1, scale: 1, delay: 80 + i * 70, duration: 260, ease: 'Back.easeOut' });
+        tela.add(linha);
+    });
+    tela.add(cena.add.text(180, meio + 150, 'Novas missões todo dia. O prêmio cai no cofrinho.',
+        estilo(12, '#4d2710', { fontStyle: 'bold' })).setOrigin(0.5));
+    tela.add(criarBotaoMadeira(cena, 180, meio + 222, 160, 46, 'FECHAR', () => {
+        tela.destroy();
+        aoFechar();
+    }));
+    tela.setAlpha(0);
+    cena.tweens.add({ targets: tela, alpha: 1, duration: 160 });
+    return tela;
+}
+
+// Imagem do resultado para compartilhar: o bicho escolhido, os troncos e os granulados.
+function gerarCartaoResultado(cena) {
+    const tela = document.createElement('canvas');
+    tela.width = 1080;
+    tela.height = 1350;
+    const ctx = tela.getContext('2d');
+    const arte = cena.textures.get('introducao').getSourceImage();
+    const cobre = Math.max(1080 / arte.width, 1350 / arte.height);
+    ctx.drawImage(arte, (1080 - arte.width * cobre) / 2, (1350 - arte.height * cobre) / 2, arte.width * cobre, arte.height * cobre);
+    ctx.fillStyle = 'rgba(26, 14, 8, 0.45)';
+    ctx.fillRect(0, 0, 1080, 1350);
+    ctx.drawImage(cena.textures.get(texturaMadeira(cena, 300, 390, { raio: 24 })).getSourceImage(), 90, 70, 900, 1170);
+    const escrever = (texto, x, y, tamanho, cor = '#4d2710', contorno = '#f6c98f') => {
+        ctx.font = `bold ${tamanho}px "Arial Black", Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = tamanho / 7;
+        ctx.strokeStyle = contorno;
+        ctx.strokeText(texto, x, y);
+        ctx.fillStyle = cor;
+        ctx.fillText(texto, x, y);
+    };
+    escrever('GRANULANDO', 540, 175, 86);
+    // Personagem com a pelagem (tinta multiplicada) e o acessorio, se for o gato.
+    const loja = lerLoja();
+    const pose = cena.textures.get(texturaPose(cena, 'mascote_1', loja)).getSourceImage();
+    const figura = document.createElement('canvas');
+    figura.width = pose.width;
+    figura.height = pose.height;
+    const fctx = figura.getContext('2d');
+    fctx.drawImage(pose, 0, 0);
+    const ehGato = loja.equipado.bichos === 'gato';
+    const cor = ehGato ? itemEquipado(loja, 'pelagens').cor : 0xffffff;
+    if (cor !== 0xffffff) {
+        fctx.globalCompositeOperation = 'multiply';
+        fctx.fillStyle = '#' + cor.toString(16).padStart(6, '0');
+        fctx.fillRect(0, 0, figura.width, figura.height);
+        fctx.globalCompositeOperation = 'destination-in';
+        fctx.drawImage(pose, 0, 0);
+    }
+    const lado = 560;
+    const xFigura = 540 - lado / 2;
+    const yFigura = 180;
+    ctx.drawImage(figura, xFigura, yFigura, lado, lado);
+    const acessorio = itemEquipado(loja, 'acessorios').id;
+    if (ehGato && acessorio !== 'nenhum') {
+        const encaixe = encaixeAcessorio[acessorio];
+        const cabeca = cabecaGato.mascote_1;
+        const ponto = encaixe.ponto === 'centro'
+            ? [(cabeca.topo[0] + cabeca.pescoco[0]) / 2, (cabeca.topo[1] + cabeca.pescoco[1]) / 2] : cabeca[encaixe.ponto];
+        const imagem = cena.textures.get('ac_' + acessorio).getSourceImage();
+        const largura = encaixe.largura * cabeca.largura / 2048 * lado;
+        const alturaAc = largura * imagem.height / imagem.width;
+        ctx.save();
+        ctx.translate(xFigura + ponto[0] / 2048 * lado, yFigura + ponto[1] / 2048 * lado);
+        ctx.rotate(Phaser.Math.DegToRad(cabeca.angulo));
+        ctx.drawImage(imagem, -encaixe.origem[0] * largura, -encaixe.origem[1] * alturaAc, largura, alturaAc);
+        ctx.restore();
+    }
+    // Pergaminho com os numeros da partida.
+    ctx.fillStyle = '#fff4d6';
+    ctx.strokeStyle = '#4d2710';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.roundRect(170, 700, 740, 330, 36);
+    ctx.fill();
+    ctx.stroke();
+    escrever(`${cena.contador} ${cena.contador === 1 ? 'tronco' : 'troncos'}`, 540, 790, 92, '#4d2710', '#fff4d6');
+    const granulado = cena.textures.get('moeda').getSourceImage();
+    const textoGranulados = String(cena.totalMoedas);
+    ctx.font = 'bold 92px "Arial Black", Arial, sans-serif';
+    const larguraTexto = ctx.measureText(textoGranulados).width;
+    const inicio = 540 - (150 + 24 + larguraTexto) / 2;
+    ctx.drawImage(granulado, inicio, 900 - 46, 150, 150 * granulado.height / granulado.width);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4d2710';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(textoGranulados, inicio + 174, 912);
+    ctx.font = 'bold 40px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#7a4a2a';
+    ctx.fillText('granulados', 540, 985);
+    escrever('Consegue me passar?', 540, 1140, 62);
+    ctx.font = 'bold 34px Arial, sans-serif';
+    ctx.fillStyle = '#fff4d6';
+    ctx.fillText('Casspet® - Granulando', 540, 1282);
+    ctx.font = '28px Arial, sans-serif';
+    ctx.fillText(enderecoJogo.replace('https://', ''), 540, 1322);
+    return new Promise((resolver) => tela.toBlob((blob) =>
+        resolver(blob ? new File([blob], 'granulando.png', { type: 'image/png' }) : null), 'image/png'));
+}
+
+// Abre o compartilhamento do celular com a imagem; sem ele, compartilha so o texto ou copia o link.
+async function compartilharResultado(cena, arquivo) {
+    const texto = `Subi ${contar(cena.contador, 'tronco')} e peguei ${contar(cena.totalMoedas, 'granulado')} no Granulando! Consegue me passar?`;
+    try {
+        if (arquivo && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+            await navigator.share({ files: [arquivo], text: `${texto} ${enderecoJogo}` });
+            return 'compartilhado';
+        }
+        if (navigator.share) {
+            await navigator.share({ text: texto, url: enderecoJogo });
+            return 'compartilhado';
+        }
+    } catch (erro) {
+        if (erro && erro.name === 'AbortError') return 'cancelado';
+    }
+    try {
+        await navigator.clipboard.writeText(`${texto} ${enderecoJogo}`);
+        return 'copiado';
+    } catch (erro) {
+        return 'falhou';
+    }
 }
 
 // Volta para a tela de titulo, de onde se chega a loja.
@@ -2997,14 +4060,14 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
     const cordas = fixo(cena.add.graphics());
     cordas.lineStyle(4, 0xc99a5b).lineBetween(118, -10, 118, 24).lineBetween(242, -10, 242, 24);
     const placa = fixo(cena.add.container(180, 42, [
-        cena.add.image(0, 0, texturaMadeira(cena, 190, 54, { raio: 14 })).setScale(0.5),
+        cena.add.image(0, 0, texturaMadeira(cena, 190, 54, { raio: 14 })).setScale(1 / escalaMadeira),
         cena.add.text(0, 1, 'LOJA', estiloPlaca(28)).setOrigin(0.5)
     ]));
     cena.tweens.add({ targets: placa, angle: { from: -1.5, to: 1.5 }, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
     // Cofrinho num pergaminho.
     const fundoSaldo = fixo(cena.add.graphics());
-    const iconeSaldo = fixo(cena.add.image(0, 90, 'moeda').setScale(22 / 808));
+    const iconeSaldo = fixo(cena.add.image(0, 90, 'moeda').setScale(22 / larguraGranulado));
     const textoSaldo = fixo(cena.add.text(0, 91, '', estilo(15, '#4d2710', { fontStyle: 'bold' })).setOrigin(0, 0.5));
     const atualizarSaldo = () => {
         textoSaldo.setText(contar(loja.saldo, 'granulado'));
@@ -3018,15 +4081,15 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
     atualizarSaldo();
     const pularSaldo = () => {
         cena.tweens.killTweensOf([iconeSaldo, textoSaldo]);
-        iconeSaldo.setScale(22 / 808 * 1.4);
-        cena.tweens.add({ targets: iconeSaldo, scale: 22 / 808, duration: 350, ease: 'Back.easeOut' });
+        iconeSaldo.setScale(22 / larguraGranulado * 1.4);
+        cena.tweens.add({ targets: iconeSaldo, scale: 22 / larguraGranulado, duration: 350, ease: 'Back.easeOut' });
     };
 
     const abas = [['bichos', 'Bichos'], ['pelagens', 'Pelagens'], ['acessorios', 'Acessórios']];
     let abaAtual = 'bichos';
     const botoesAbas = abas.map(([grupo, nome], i) => {
         const x = 64 + i * 116;
-        const fundo = cena.add.image(0, 0, texturaMadeira(cena, 110, 36, { raio: 10 })).setScale(0.5);
+        const fundo = cena.add.image(0, 0, texturaMadeira(cena, 110, 36, { raio: 10 })).setScale(1 / escalaMadeira);
         const texto = cena.add.text(0, 1, nome, estiloPlaca(13)).setOrigin(0.5);
         const aba = fixo(cena.add.container(x, 132, [fundo, texto]).setSize(110, 36).setScrollFactor(0)
             .setInteractive({ useHandCursor: true }));
@@ -3052,7 +4115,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
     // Chuva de granulados saindo do cartao comprado.
     const comemorar = (x, y) => {
         for (let i = 0; i < 12; i++) {
-            const granulado = cena.add.image(x, y, 'moeda').setScale(20 / 808).setAngle(Phaser.Math.Between(0, 360));
+            const granulado = cena.add.image(x, y, 'moeda').setScale(20 / larguraGranulado).setAngle(Phaser.Math.Between(0, 360));
             tela.add(granulado);
             const angulo = Phaser.Math.DegToRad(Phaser.Math.Between(200, 340));
             const alcance = Phaser.Math.Between(40, 90);
@@ -3125,7 +4188,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
             cartoes.add(cartao);
             const fundo = cena.add.image(0, 0, texturaMadeira(cena, 164, alturaCartao, {
                 raio: 14, escurecer: item.emBreve ? 0.55 : 0.28, borda: usando ? 0xffc629 : 0x4d2710
-            })).setScale(0.5);
+            })).setScale(1 / escalaMadeira);
             fundo.setSize(164, alturaCartao);
             cartao.add(fundo);
             cartao.setSize(164, alturaCartao).setScrollFactor(0).setInteractive({ useHandCursor: true });
@@ -3143,7 +4206,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
                 // Os pes ficam a 84% da altura da imagem; na aba de bichos a figura e menor,
                 // porque as orelhas do coelho sao mais altas.
                 const figura = cena.add.image(0, alturaCartao * 0.07, texturaPose(cena, 'mascote_1', provador))
-                    .setOrigin(0.5, 0.84).setScale(alturaCartao * (abaAtual === 'bichos' ? 0.74 : 0.84) / 2048);
+                    .setOrigin(0.5, 0.84).setScale(alturaCartao * (abaAtual === 'bichos' ? 0.74 : 0.84) / tamanhoPose);
                 vestirGato(cena, figura, provador);
                 cartao.add(figura);
                 if (figura.acessorio) cartao.add(figura.acessorio);
@@ -3164,7 +4227,7 @@ function mostrarLoja(cena, aoFechar, profundidade = 30) {
             const texto = cena.add.text(0, yBotao + 1, rotulo, estilo(13, corTextoBotao, { fontStyle: 'bold' })).setOrigin(0.5);
             if (!tem && !item.emBreve) {
                 texto.x = 9;
-                cartao.add(cena.add.image(texto.x - texto.width / 2 - 13, yBotao, 'moeda').setScale(18 / 808));
+                cartao.add(cena.add.image(texto.x - texto.width / 2 - 13, yBotao, 'moeda').setScale(18 / larguraGranulado));
             }
             cartao.add(texto);
             // Os cartoes entram em sequencia; o escolhido agora da um pulo.
@@ -3226,13 +4289,15 @@ function posicionarAcessorio(gato) {
         ? [(cabeca.topo[0] + cabeca.pescoco[0]) / 2, (cabeca.topo[1] + cabeca.pescoco[1]) / 2]
         : cabeca[encaixe.ponto];
     const espelhado = gato.flipX;
-    const localX = ((espelhado ? 2048 - ponto[0] : ponto[0]) - 2048 * gato.originX) * Math.abs(gato.scaleX);
-    const localY = (ponto[1] - 2048 * gato.originY) * gato.scaleY;
+    // cabecaGato usa uma grade de 2048; k converte para os pixels da textura atual.
+    const k = gato.frame.width / 2048;
+    const localX = ((espelhado ? 2048 - ponto[0] : ponto[0]) - 2048 * gato.originX) * k * Math.abs(gato.scaleX);
+    const localY = (ponto[1] - 2048 * gato.originY) * k * gato.scaleY;
     const giro = Phaser.Math.DegToRad(gato.angle);
     acessorio.setPosition(
         gato.x + localX * Math.cos(giro) - localY * Math.sin(giro),
         gato.y + localX * Math.sin(giro) + localY * Math.cos(giro));
-    const escala = encaixe.largura * cabeca.largura * Math.abs(gato.scaleX) / acessorio.frame.width;
+    const escala = encaixe.largura * cabeca.largura * k * Math.abs(gato.scaleX) / acessorio.frame.width;
     acessorio.setScale(escala, escala * gato.scaleY / Math.abs(gato.scaleX))
         .setFlipX(espelhado).setAngle(gato.angle + (espelhado ? -cabeca.angulo : cabeca.angulo))
         .setAlpha(gato.alpha).setVisible(gato.visible);
@@ -3312,8 +4377,19 @@ function pular(caixa, plataforma) {
     cena.ultimoTronco = Math.max(cena.ultimoTronco, plataforma.numero);
     // Cada tronco conta uma unica vez; o chao nao entra na contagem.
     if (plataforma.numero > 0 && !plataforma.contada) {
+        // Granulado de um tronco ja pisado que ficou para tras quebra a sequencia.
+        // Os de troncos pulados por um super pulo ou pela mola nao contam.
+        for (const moeda of cena.moedas.getChildren()) {
+            if (moeda.coletada || moeda.perdida || moeda.escondida || moeda.atraida) continue;
+            if (moeda.plataforma.contada && moeda.plataforma.numero < plataforma.numero) {
+                moeda.perdida = true;
+                quebrarCombo(cena);
+            }
+        }
         plataforma.contada = true;
         cena.contador += 1;
+        registrarMissao(cena, 'troncos', cena.contador);
+        if (cena.bicadas === 0) registrarMissao(cena, 'semBicada', cena.contador);
         atualizarHud(cena);
         if (cena.contador % 20 === 0) {
             cena.plataformas.getChildren().forEach(function (tronco) {
@@ -3339,12 +4415,22 @@ function pular(caixa, plataforma) {
     caixa.poseContatoAte = cena.time.now + 120 / velocidade;
     // Garante o impulso mesmo quando a plataforma quebra.
     caixa.body.setVelocityY(-400 * velocidade);
+    if (plataforma.mola) {
+        pularNaMola(cena, plataforma);
+        return;
+    }
     som.pulo();
     if (plataforma.numero === 0) cena.efeitos.grama.explode(8, caixa.x, caixa.y + 38);
     else cena.efeitos.poeira.explode(7, caixa.x, caixa.y + 36);
     deformarGato(cena, 1.3, 0.72, 420);
     if (plataforma.fragil) {
         quebrarTronco(cena, plataforma);
+    } else if (plataforma.movimento && plataforma.movimento.tipo === 'balanco') {
+        // O balanco afunda um pouco mais com o peso e ganha embalo.
+        cena.tweens.add({
+            targets: plataforma.movimento, yBase: plataforma.movimento.yBase + 9, duration: 110,
+            yoyo: true, ease: 'Quad.easeOut'
+        });
     } else if (plataforma.numero > 0) {
         // O tronco cede um pouco com o peso; o corpo de colisao fica parado.
         cena.tweens.add({
@@ -3441,6 +4527,9 @@ function update(time, delta) {
     camera.scrollY = Math.min(camera.scrollY, this.caixa.y - (config.height - folgaAbaixoGato));
     gerarPlataformas(this);
     atualizarMoedas(this, delta);
+    atualizarItensPoder(this, delta);
+    atualizarPoderes(this, delta);
+    atualizarDicas(this, delta);
     atualizarCenario(this, delta);
     atualizarCeu(this, delta);
     limparPlataformasForaDaTela(this);

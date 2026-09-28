@@ -40,6 +40,11 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   (previa jogavel e/ou Pull Request) e so vai para a `main` depois que o usuario aprovar.
 - Quando o usuario pedir para "subir no git para jogar" algo ja aprovado, e merge + push na `main`.
 - A cada mudanca no jogo, troque o `?v=` do `GameV2.js` no `index.html`, para o celular nao usar script em cache.
+- **Instalar como app (PWA):** `manifest.webmanifest` (tela cheia, retrato, icones em `assets/icone/`, feitos da
+  arte do menu com o gato parado) e `sw.js`, que guarda os arquivos para abrir sem internet. O `sw.js` busca
+  sempre a rede primeiro e so usa o guardado quando ela falha, entao atualizacoes chegam na hora. Botao
+  "Instalar" no alto do menu: no Android abre o convite do navegador (`window.pedidoInstalar`); no iPhone
+  explica Compartilhar > Adicionar a Tela de Inicio. Some quando o jogo ja esta aberto como app.
 
 ## Como rodar e validar
 
@@ -58,8 +63,15 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   carrega e a textura `fx_saco`, desenhada no codigo. Expressoes (geradas no Magnific, mesmo tamanho):
   `guaxinim-rindo.png` (provocando e distraido) e `guaxinim-susto.png` (depois do susto), de quatro patas
   como o original e com o mesmo corpo (decisao do usuario: nada de guaxinim em pe ou menor).
-- Gato: o parado (`mascote_1`) usa `assets/gato-parado.webp`, redesenhado no estilo das outras poses (o antigo,
-  mais escuro, e `mascote_1.png`). `gato-machucado.webp` (tonto) aparece ~0,5 s quando o passaro/OVNI acerta.
+- Gato: as poses usadas estao em `assets/gato/*.webp` (512 x 512, reduzidas com boa qualidade dos originais de
+  2048 que continuam em `assets/`: `gato-parado.webp`, `3quasepualndo.png`, `pulando.png`, `caindo.png`,
+  `gato-machucado.webp`). O parado foi redesenhado no estilo das outras poses (o antigo, mais escuro, e
+  `mascote_1.png`). O machucado (tonto) aparece ~0,5 s quando o passaro/OVNI acerta.
+- **Nitidez e peso:** o jogo desenha perto da resolucao real da tela (`escalaRenderizacao`, ate 2,5x) e as
+  imagens tem o tamanho em que aparecem: poses 512 (`tamanhoPose`; `cabecaGato` e o corpo fisico usam a
+  grade de 2048 convertida), granulado 256 (`assets/granulado.webp`, `larguraGranulado`), menu
+  `assets/inicio.webp` (de `inicio2.png`), troncos SVG rasterizados em 384 x 86. Madeira desenhada em 3x
+  (`escalaMadeira`). Imagem nova de personagem: 512 x 512 webp, nunca a original enorme.
 - A textura `introducao` (arte do menu) tem recortes (`madeiraLoja`); ao usar a arte inteira, passe o
   frame `'__BASE'`, senao o Phaser usa o primeiro recorte.
 - Sons e musica sao sintetizados com Web Audio (objetos `som`, `musica` e `trilha`), sem arquivos de audio.
@@ -68,15 +80,15 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   dia, fim de tarde (30), por do sol (65), noite (95) e espaco (150), com sol que se poe, estrelas, estrelas
   cadentes, lua, Terra e planeta com anel; a luz do cenario acompanha. Aprovado pelo usuario. As fases evitam
   multiplos de 20 (aviso de "MAIS RAPIDO!") e a noite vem antes da copa do pinheiro (~110 a ~185 troncos).
-- **Cenario redesenhado (previa, aguardando aprovacao):** `ferramentas/desenhar-cenario.html` desenha tudo em
-  codigo (Canvas 2D): tronco com veios, espirais, olhinhos, raizes, trepadeira, orelhas-de-pau, coracao com
-  patinha, ninho, esquilo, coruja e galhos de pinheiro; floresta, montanhas com neve, cachoeira, portinha de fada,
-  cogumelos e granulados caidos no pe; nuvens; e a copa do pinheiro em andares com neve no alto. Gera
-  `assets/cenario-novo/` (1024 x 12264, 1,5x mais nitido que o antigo e sem esticar; mesmas alturas do antigo,
-  com a ponta da copa em 9054 = 6036 x 1,5, para `troncoFimCopa` e as fases do ceu continuarem batendo).
-  `cenario-novo.html` liga `window.previaCenario`, que troca `texturaCenario` e mostra um botao SUBIR (so na
-  previa). Ao aprovar: faixas novas em `assets/cenario/`, medidas novas em `texturaCenario`, sem o interruptor,
-  o SUBIR e a pagina de previa.
+- **Cenario redesenhado (previa, aguardando aprovacao):** feito com imagens geradas por IA pelo usuario
+  (pe da arvore, dois trechos do tronco, copa, nuvens e galhos, em `arte-cenario-ia/recebidas/`, a partir dos
+  prompts e guias de `arte-cenario-ia/`). `ferramentas/montar-cenario-ia.html` tira o fundo magenta, deixa os
+  troncos com a mesma largura (315 px) e no mesmo eixo, empilha as pecas com emendas suaves e gera
+  `assets/cenario-novo/` (1024 x 12264, sem esticar, mesmo ritmo de subida do antigo). A copa e mais baixa:
+  `texturaCenario.fimCopa` e 157 (175 no antigo). `cenario-novo.html` liga `window.previaCenario`, que troca
+  `texturaCenario` e mostra um botao SUBIR (so na previa). Ao aprovar: faixas novas em `assets/cenario/`,
+  medidas novas em `texturaCenario`, sem o interruptor, o SUBIR e a pagina de previa.
+  (`ferramentas/desenhar-cenario.html` e a primeira tentativa, desenhada em codigo; serviu para os guias.)
 - **Titulos de fase** ("FIM DE TARDE", "ESPACO!"): desligados em teste pelo interruptor `mostrarAvisosCeu`.
 - **Espaco em movimento:** Terra, Lua e planeta com anel descem e ficam para tras; `atualizarEspaco` solta
   planetas, asteroides, nebulosas, satelite e o **Planeta Casspet** (cor de granulado, cratera de patinha e anel
@@ -88,6 +100,28 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   as vezes param no meio e disparam, ficam mais frequentes e vem em dupla, para o jogador nao decorar o padrao. Enfeites atras dos troncos
   (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
   do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
+- **Poderes e balanco desligados:** o usuario aprovou o resto do pacote, mas ainda vai decidir sobre os poderes, e o
+  balanco de cipo precisa de acerto. Os dois ficam no codigo e desligados pelos interruptores `ativarPoderes` e
+  `ativarBalanco` (sem poderes, a missao "Pegue N poderes" sai do sorteio). So ligue quando o usuario aprovar.
+- **Poderes** (`poderes`, `criarItemPoder`, `ativarPoder`, `atualizarPoderes`): bolhas no meio de alguns troncos,
+  a primeira perto de `troncoPoderes` e depois a cada 22 a 34. **Ima** puxa os granulados perto (`raioIma`),
+  **escudo** segura uma bicada (so aparece depois de `troncoPassaros`) e **pacote furado** faz o pacote do
+  guaxinim vazar: todo tronco a frente ganha granulado. Icones redondos embaixo dos troncos, com anel de tempo.
+  O tempo corre no `update`, entao para na pausa.
+- **Combo** (`niveisCombo`, `contarCombo`, `quebrarCombo`): granulados seguidos valem x2 (5) e x3 (10). Quebra
+  com uma bicada ou quando o gato pousa num tronco novo deixando para tras o granulado de um tronco ja pisado
+  (os pulados pela mola ou pelo super pulo nao contam). Etiqueta embaixo da placa de granulados.
+- **Troncos especiais** (nunca rachados): **mola** (`fx_mola`, `pularNaMola`, `impulsoMola`) a partir de
+  `troncoMola`, a cada 12 a 20; **balanco** pendurado em dois cipos (`desenharCipos`, movimento `tipo: 'balanco'`)
+  a partir de `troncoBalanco`, a cada 14 a 22. O cipo sobe reto ate passar do alto da tela (o usuario viu ele
+  terminar no meio do caminho ao subir).
+
+- **Primeira partida guiada:** na primeira partida do aparelho uma mao (indicador, nunca o dedo do meio no centro
+  da palma) arrasta de um lado para o outro na metade de baixo com "Arraste o dedo aqui embaixo" e some
+  quando o jogador arrasta (`mostrarMaoTutorial`). Depois, plaquinhas de madeira embaixo do placar explicam
+  cada novidade na primeira vez que ela aparece (`dicasJogo`: tronco rachado, passaro, bolha de poder, mola,
+  combo), uma por vez e so uma vez por aparelho (`chaveDicas`). A mao e temporaria: o controle continua sem
+  marcacao visivel.
 
 ## Menus
 
@@ -95,11 +129,26 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   brilho no letreiro e no INICIAR, faz estrelinhas e escurece a placa tocada. Borboletas voam pelo menu.
 - Placar (`criarHud`): troncos numa etiqueta de madeira com icone de tronco cortado, granulados numa placa
   no meio (o granulado pego voa ate ela, `voarParaPlacar`) e pausa/som em botoes redondos de madeira.
-- Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
+- Musica, efeitos e vibracao ligam e desligam separados (`criarOpcoesSom`, `som.opcoes`, `chaveOpcoes`), na pausa
+  e em CONFIGURACOES; o botao de som do placar continua desligando tudo. A vibracao so aparece onde o aparelho
+  vibra (no iPhone nao) e vale mesmo com o som desligado.
+- Pausa: CONTINUAR e MENU. Derrota: JOGAR DE NOVO, COMPARTILHAR, LOJA e MENU (`criarBotaoMadeira`, `voltarAoMenu`).
 - Botoes dentro de paineis fixos precisam de `setScrollFactor(0)` no proprio botao, senao o toque segue a camera.
 - `scene.restart()` sem dados repete os do ultimo reinicio; `voltarAoMenu` passa `{ reiniciar: false }`.
 - `index.html` mostra uma caixa "O jogo travou" com o motivo e RECARREGAR se acontecer um erro de script
-  (o usuario relatou um travamento no JOGAR DE NOVO que nao foi reproduzido).
+  (o usuario relatou um travamento no JOGAR DE NOVO que nao foi reproduzido). O Phaser carrega com
+  `crossorigin`, para a caixa mostrar o erro de verdade em vez de "Script error.".
+- Ao reiniciar a cena, zere no `create` toda referencia a objeto da partida anterior antes de usa-la: o MENU
+  e o JOGAR DE NOVO travavam depois de perder no espaco porque o ceu religava as folhas ja destruidas.
+
+## Missoes e compartilhar
+
+- **Missoes do dia** (`tiposMissao`, `missoesDoDia`, `registrarMissao`): 3 por dia sorteadas pela data (iguais
+  para todos), progresso em `chaveMissoes`; "partida" vale o melhor numa partida, "dia" soma. Ao cumprir,
+  faixa "MISSAO CUMPRIDA!" e o premio cai no cofrinho. Botao redondo "Missoes" no alto do menu com x/3.
+- **Compartilhar** na derrota: `gerarCartaoResultado` monta uma imagem 1080 x 1350 (bicho com pelagem e
+  acessorio, troncos, granulados, endereco do jogo) antes do toque, porque no iPhone o compartilhamento tem
+  que sair direto do toque; `compartilharResultado` usa o compartilhar do celular, senao copia o link.
 
 ## Loja e cofrinho
 
@@ -110,7 +159,7 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 - `itensLoja`: **bichos** (o foco, decisao do usuario: animais que tambem usam o granulado - coelho, hamster,
   passaro, porquinho-da-india, iguana), **pelagens** (tint sobre o gato; so escurece ou muda o tom) e
   **acessorios** desenhados no codigo (`ac_*`), presos na cabeca por `cabecaGato` em cada uma das 4 poses.
-- Bichos com arte ficam em `assets/bichos/<id>/` (parado, quasePulando, pulando, caindo `.webp`, 2048 x 2048,
+- Bichos com arte ficam em `assets/bichos/<id>/` (parado, quasePulando, pulando, caindo `.webp`, 512 x 512,
   pes alinhados com os do gato: o corpo fisico usa essa medida). `texturaPose` troca as poses do gato pelas do
   bicho escolhido. Pelagens e acessorios valem so para o gato. O **coelho** ja tem arte; os outros estao
   "em breve".
