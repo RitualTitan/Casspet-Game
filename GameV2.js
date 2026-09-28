@@ -52,16 +52,18 @@ const config = {
 const enquadramentoCenario = {
     abertura: 0.28,
     jogo: 0.40,
-    esticamentoHorizontal: 1.15,
-    centroTronco: 665,
     duracao: 900
 };
-// Medidas das faixas em assets/cenario/ (iguais as de ferramentas/gerar-cenario.html).
+// Medidas das faixas em assets/cenario/ (iguais as de ferramentas/montar-cenario-ia.html, que monta
+// o cenario com as imagens geradas por IA). `centroTronco` e o eixo do tronco e `larguraMadeira` a
+// largura da madeira, em px da arte; o enquadramento encaixa essa madeira na tela.
 const texturaCenario = {
-    largura: 1399,
-    altura: 8192,
+    largura: 1024,
+    altura: 12264,
     alturaFaixa: 2044,
-    margem: 2
+    margem: 2,
+    centroTronco: 512,
+    larguraMadeira: 273.75
 };
 // Cada tronco fica em media 212 acima do anterior (190 a 235, em gerarPlataformas).
 const alturaPorTronco = 212;
@@ -94,7 +96,7 @@ const fasesCeu = [
 // A ultima fase e o espaco.
 const faseEspaco = fasesCeu.length - 1;
 // A copa do pinheiro sai de cima da tela por volta deste tronco; so dai o espaco comeca a andar.
-const troncoFimCopa = 175;
+const troncoFimCopa = 157;
 // A partir de 160 troncos o jogo para de acelerar (3x a velocidade inicial).
 const velocidadeMaxima = 3;
 // Passaros inimigos aparecem a partir deste tronco; cada bicada derruba alguns granulados.
@@ -887,7 +889,7 @@ function create(data = {}) {
         // As faixas se encostam; a margem fica fora da area visivel do frame.
         const y = inicio - texturaCenario.altura;
         cenarioFundo.add(this.add.image(0, y, 'cenario_' + i, 'miolo')
-            .setOrigin(enquadramentoCenario.centroTronco / texturaCenario.largura, 0));
+            .setOrigin(texturaCenario.centroTronco / texturaCenario.largura, 0));
     }
     this.cenario = {
         base: cenarioFundo, deslocamento: 0, alvo: 0,
@@ -3572,10 +3574,9 @@ function enquadrarCenario(cena, larguraTronco, duracao = 900, aoConcluir = () =>
 
 function atualizarCenario(cena, delta) {
     const fundo = cena.cenario;
-    // Nas faixas de 1399 px, o tronco ocupa cerca de 182,5 px.
-    const escala = config.width * fundo.larguraTronco / 182.5;
-    // Centraliza pela madeira da arte e alarga o cenario em 15%.
-    fundo.base.setScale(escala * enquadramentoCenario.esticamentoHorizontal, escala);
+    const escala = config.width * fundo.larguraTronco / texturaCenario.larguraMadeira;
+    // Centraliza pela madeira da arte, sem esticar.
+    fundo.base.setScale(escala);
     fundo.base.x = config.width / 2;
     fundo.alvo = Math.max(fundo.alvo,
         (fundo.alturaInicialGato - cena.caixa.y) * fundo.paralaxe);
