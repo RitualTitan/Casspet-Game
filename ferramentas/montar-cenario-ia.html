@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Montar cenario da IA</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #233c24; color: #ffe1a6; margin: 24px; }
+    button { font-size: 16px; padding: 10px 18px; background: #634128; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+    #faixas { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+    #faixas figure { margin: 0; text-align: center; }
+    #faixas img { width: 120px; display: block; border: 2px solid #ffe1a6; background: #7fb8e6; }
+    a { color: #ffd24a; }
+  </style>
+</head>
+<body>
+  <h1>Montar cenario da IA</h1>
+  <p>
+    Junta as imagens geradas por IA de <code>arte-cenario-ia/recebidas/</code> (pe da arvore, dois trechos
+    do tronco, copa, nuvens e galhos): tira o fundo magenta, deixa todos os troncos com a mesma largura
+    e no mesmo eixo, empilha com emendas suavizadas, espalha nuvens e galhos e gera as faixas WebP do
+    jogo. Salve os arquivos baixados em <code>assets/cenario-novo/</code>.
+  </p>
+  <p>Abra esta pagina pelo servidor local do jogo (por exemplo http://localhost:8000/ferramentas/montar-cenario-ia.html).</p>
+  <button id="gerar">Montar faixas</button>
+  <p id="estado"></p>
+  <div id="faixas"></div>
+  <script>
+    // Mesmas medidas do cenario novo em GameV2.js (texturaCenario da previa).
+    const arte = { largura: 1024, altura: 12264, alturaFaixa: 2044, margem: 2, centro: 512 };
+    // Largura do tronco na arte e quantas linhas cada emenda leva para trocar de uma imagem para a outra.
+    const larguraTronco = 315;
+    const emenda = 90;
+    const Y = (r) => arte.altura - r;
+    const pasta = '../arte-cenario-ia/recebidas/';
+
+    function carregar(nome) {
+      return new Promise((resolver, rejeitar) => {
+        const imagem = new Image();
+        imagem.onload = () => resolver(imagem);
+        imagem.onerror = () => rejeitar(new Error('nao carregou ' + nome));
+        imagem.src = pasta + nome;
+      });
+    }
+
+    // Tira o fundo magenta: quanto mais o pixel puxa para o magenta (vermelho e azul altos,
+    // verde baixo), mais transparente ele fica; nas bordas, desconta o magenta da cor.
+    function tirarMagenta(imagem) {
+      const tela = document.createElement('canvas');
+      tela.width = imagem.naturalWidth;
+      tela.height = imagem.naturalHeight;
+      const ctx = tela.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(imagem, 0, 0);
+      const dados = ctx.getImageData(0, 0, tela.width, tela.height);
+      const p = dados.data;
+      for (let i = 0; i < p.length; i += 4) {
+        const r = p[i], g = p[i + 1], b = p[i + 2];
+        const magenta = Math.min(r, b) - g;
+        const alfa = Math.max(0, Math.min(1, (175 - magenta) / 110));
+        if (alfa >= 1) continue;
+        if (alfa <= 0.02) {
+          p[i + 3] = 0;
+          continue;
+        }
+        p[i] = Math.max(0, Math.min(255, (r - (1 - alfa) * 255) / alfa));
+        p[i + 1] = Math.max(0, Math.min(255, g / alfa));
+        p[i + 2] = Math.max(0, Math.min(255, (b - (1 - alfa) * 255) / alfa));
+        p[i + 3] = Math.round(alfa * 255);
+      }
+      ctx.putImageData(dados, 0, 0);
+      return tela;
+    }
+
+    // Bordas do tronco numa faixa de linhas: parte do meio e anda para os lados ate o fundo.
+    function medirTronco(tela, y0, y1) {
+      const ctx = tela.getContext('2d', { willReadFrequently: true });
+      const esquerdas = [], direitas = [];
+      for (let y = y0; y < y1; y += 4) {
+        const linha = ctx.getImageData(0, y, tela.width, 1).data;
+        const opaco = (x) => linha[x * 4 + 3] > 128;
+        let meio = Math.round(tela.width / 2);
+        for (let d = 0; d < tela.width / 4 && !opaco(meio); d++) meio += d % 2 ? d : -d;
+        let e = meio, dd = meio;
+        while (e > 0 && opaco(e - 1)) e--;
+        while (dd < tela.width - 1 && opaco(dd + 1)) dd++;
+        esquerdas.push(e);
+        direitas.push(dd);
+      }
+      const mediana = (v) => v.slice().sort((a, b) => a - b)[Math.floor(v.length / 2)];
+      const esquerda = mediana(esquerdas), direita = mediana(direitas);
+      return { esquerda, direita, largura: direita - esquerda, centro: (esquerda + direita) / 2 };
+    }
+
+    // Recorta cada figura separada de uma folha (nuvens, galhos) pelas areas opacas.
+    function recortarFiguras(tela) {
+      const ctx = tela.getContext('2d', { willReadFrequently: true });
+      const { width: w, height: h } = tela;
+      const alfa = ctx.getImageData(0, 0, w, h).data;
+      const visto = new Uint8Array(w * h);
+      const figuras = [];
+      for (let inicio = 0; inicio < w * h; inicio++) {
+        if (visto[inicio] || alfa[inicio * 4 + 3] < 40) continue;
+        let x0 = w, y0 = h, x1 = 0, y1 = 0, n = 0;
+        const pilha = [inicio];
+        visto[inicio] = 1;
+        while (pilha.length) {
+          const k = pilha.pop();
+          const x = k % w, y = (k - x) / w;
+          n++;
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+          for (const v of [k - 1, k + 1, k - w, k + w]) {
+            if (v < 0 || v >= w * h || visto[v] || alfa[v * 4 + 3] < 40) continue;
+            if ((v === k - 1 && x === 0) || (v === k + 1 && x === w - 1)) continue;
+            visto[v] = 1;
+            pilha.push(v);
+          }
+        }
+        if (n < 2000) continue;
+        const folga = 6;
+        const figura = document.createElement('canvas');
+        figura.width = x1 - x0 + 1 + folga * 2;
+        figura.height = y1 - y0 + 1 + folga * 2;
+        figura.getContext('2d').drawImage(tela, x0 - folga, y0 - folga, figura.width, figura.height, 0, 0, figura.width, figura.height);
+        figuras.push({ tela: figura, x: x0, y: y0 });
+      }
+      // Em ordem de leitura: de cima para baixo, da esquerda para a direita.
+      return figuras.sort((a, b) => (Math.abs(a.y - b.y) > 80 ? a.y - b.y : a.x - b.x)).map((f) => f.tela);
+    }
+
+    async function prepararPecas() {
+      const nomes = ['base', 'tronco-1', 'tronco-2', 'copa', 'nuvens', 'galhos'];
+      const pecas = {};
+      for (const nome of nomes) pecas[nome] = tirarMagenta(await carregar(nome + '.png'));
+      return pecas;
+    }
+
+    // Amplia a peca para o tronco ficar com `larguraTronco` e devolve onde ela fica na arte.
+    function encaixar(tela, tronco) {
+      const escala = larguraTronco / tronco.largura;
+      return { tela, escala, largura: tela.width * escala, altura: tela.height * escala, x: arte.centro - tronco.centro * escala };
+    }
+
+    // Desenha a peca com a base em `r`; `suave` deixa as ultimas linhas de baixo sumindo aos poucos,
+    // para ela se misturar com a peca de baixo na emenda.
+    function desenharPeca(ctx, peca, r, suave) {
+      const temp = document.createElement('canvas');
+      temp.width = Math.ceil(peca.largura);
+      temp.height = Math.ceil(peca.altura);
+      const t = temp.getContext('2d');
+      t.imageSmoothingQuality = 'high';
+      t.drawImage(peca.tela, 0, 0, temp.width, temp.height);
+      if (suave) {
+        const mascara = t.createLinearGradient(0, temp.height - emenda, 0, temp.height);
+        mascara.addColorStop(0, 'rgba(0,0,0,1)');
+        mascara.addColorStop(1, 'rgba(0,0,0,0)');
+        t.globalCompositeOperation = 'destination-in';
+        t.fillStyle = mascara;
+        t.fillRect(0, 0, temp.width, temp.height);
+      }
+      ctx.drawImage(temp, peca.x, Y(r) - temp.height);
+      return r + temp.height;
+    }
+
+    // Figura de uma folha (nuvem ou galho) com centro em (x, r); `lado` -1 espelha.
+    function desenharFigura(ctx, figura, x, r, escala, lado = 1) {
+      ctx.save();
+      ctx.translate(x, Y(r));
+      ctx.scale(lado * escala, escala);
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(figura, -figura.width / 2, -figura.height / 2);
+      ctx.restore();
+    }
+
+    // Galho saindo do tronco: o toco cortado fica escondido atras da madeira.
+    function desenharGalho(ctx, galho, lado, r, escala) {
+      const meia = galho.width * escala / 2;
+      const borda = arte.centro + lado * larguraTronco / 2;
+      desenharFigura(ctx, galho, borda + lado * (meia - 70), r, escala, lado);
+    }
+
+    // Monta a arte inteira. Devolve a tela e onde ficou cada coisa, para conferir as alturas.
+    async function montarCenario() {
+      const pecas = await prepararPecas();
+      const alturaDe = (t) => t.height;
+      const base = encaixar(pecas.base, medirTronco(pecas.base, 10, 120));
+      const tronco1 = encaixar(pecas['tronco-1'], medirTronco(pecas['tronco-1'], 10, 120));
+      const tronco2 = encaixar(pecas['tronco-2'], medirTronco(pecas['tronco-2'], 10, 120));
+      const copa = encaixar(pecas.copa, medirTronco(pecas.copa, alturaDe(pecas.copa) - 120, alturaDe(pecas.copa) - 10));
+      const nuvens = recortarFiguras(pecas.nuvens);
+      const galhos = recortarFiguras(pecas.galhos);
+
+      // Alturas das emendas: cada peca comeca `emenda` linhas antes do fim da de baixo.
+      const inicio1 = base.altura - emenda;
+      const inicio2 = inicio1 + tronco1.altura - emenda;
+      const inicioCopa = inicio2 + tronco2.altura - emenda;
+
+      const tela = document.createElement('canvas');
+      tela.width = arte.largura;
+      tela.height = arte.altura;
+      const ctx = tela.getContext('2d', { willReadFrequently: true });
+
+      // Nuvens atras de tudo, alternando os lados pela subida (algumas espelhadas para variar).
+      [
+        [1, 180, 1720, 0.5, -1], [4, 860, 1420, 0.55, 1],
+        [0, 170, 2250, 0.55, 1], [1, 860, 2750, 0.55, 1], [2, 190, 3350, 0.6, 1], [3, 850, 3950, 0.6, -1],
+        [4, 200, 4600, 0.7, 1], [5, 840, 5150, 0.7, 1], [2, 180, 5650, 0.5, -1]
+      ].forEach(([i, x, r, escala, lado]) => desenharFigura(ctx, nuvens[i], x, r, escala, lado));
+
+      // Galhos extras nas emendas, que tambem disfarcam a troca de imagem.
+      desenharGalho(ctx, galhos[0], -1, inicio1 + emenda / 2, 0.3);
+      desenharGalho(ctx, galhos[1], 1, inicio2 + emenda / 2, 0.3);
+      desenharGalho(ctx, galhos[2], 1, inicioCopa + emenda / 2, 0.28);
+      desenharGalho(ctx, galhos[3], -1, inicioCopa + 150, 0.26);
+
+      desenharPeca(ctx, base, 0, false);
+      desenharPeca(ctx, tronco1, inicio1, true);
+      desenharPeca(ctx, tronco2, inicio2, true);
+      const topoCopa = desenharPeca(ctx, copa, inicioCopa, true);
+      return { tela, alturas: { inicio1, inicio2, inicioCopa, topoCopa, escalas: [base.escala, tronco1.escala, tronco2.escala, copa.escala] } };
+    }
+
+    // Recorta a arte em faixas com margem de filtragem e devolve os WebP prontos.
+    async function gerarFaixas(aoAvancar = () => {}) {
+      aoAvancar('Montando o cenario...');
+      const { tela } = await montarCenario();
+      const quantidade = Math.ceil(arte.altura / arte.alturaFaixa);
+      const faixas = [];
+      for (let i = 0; i < quantidade; i++) {
+        aoAvancar(`Recortando faixa ${i + 1} de ${quantidade}...`);
+        const inicio = i * arte.alturaFaixa;
+        const faixa = document.createElement('canvas');
+        faixa.width = arte.largura;
+        faixa.height = Math.min(arte.alturaFaixa, arte.altura - inicio) + arte.margem * 2;
+        faixa.getContext('2d').drawImage(tela, 0, -(inicio - arte.margem));
+        const blob = await new Promise((resolver) => faixa.toBlob(resolver, 'image/webp', 0.9));
+        faixas.push({ nome: `cenario-${i}.webp`, blob });
+      }
+      return faixas;
+    }
+
+    document.getElementById('gerar').addEventListener('click', async () => {
+      const estado = document.getElementById('estado');
+      const lista = document.getElementById('faixas');
+      lista.innerHTML = '';
+      try {
+        const faixas = await gerarFaixas((texto) => { estado.textContent = texto; });
+        estado.textContent = 'Pronto! Clique em cada faixa para baixar e salve em assets/cenario-novo/.';
+        for (const faixa of faixas) {
+          const url = URL.createObjectURL(faixa.blob);
+          lista.insertAdjacentHTML('beforeend', `<figure><a href="${url}" download="${faixa.nome}">
+            <img src="${url}" alt="${faixa.nome}"></a>
+            <figcaption>${faixa.nome}<br>${Math.round(faixa.blob.size / 1024)} KB</figcaption></figure>`);
+        }
+      } catch (erro) {
+        estado.textContent = 'Erro: ' + erro.message;
+      }
+    });
+
+    // Medidas usadas para encaixar as pecas; exposta para conferir de fora.
+    async function medir() {
+      const pecas = await prepararPecas();
+      const alt = (t) => t.height;
+      return {
+        base: { tamanho: [pecas.base.width, alt(pecas.base)], topo: medirTronco(pecas.base, 10, 120) },
+        tronco1: { tamanho: [pecas['tronco-1'].width, alt(pecas['tronco-1'])], baixo: medirTronco(pecas['tronco-1'], alt(pecas['tronco-1']) - 120, alt(pecas['tronco-1']) - 10), topo: medirTronco(pecas['tronco-1'], 10, 120) },
+        tronco2: { tamanho: [pecas['tronco-2'].width, alt(pecas['tronco-2'])], baixo: medirTronco(pecas['tronco-2'], alt(pecas['tronco-2']) - 120, alt(pecas['tronco-2']) - 10), topo: medirTronco(pecas['tronco-2'], 10, 120) },
+        copa: { tamanho: [pecas.copa.width, alt(pecas.copa)], baixo: medirTronco(pecas.copa, alt(pecas.copa) - 120, alt(pecas.copa) - 10) },
+        nuvens: recortarFiguras(pecas.nuvens).map((t) => [t.width, t.height]),
+        galhos: recortarFiguras(pecas.galhos).map((t) => [t.width, t.height])
+      };
+    }
+  </script>
+</body>
+</html>
