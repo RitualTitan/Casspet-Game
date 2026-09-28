@@ -104,7 +104,7 @@ const ativarBalanco = false;
 // placa do menu) ou 'galho' (afunda e quica como trampolim).
 let estiloBalanco = 'corda';
 // Artes em teste (geradas no Magnific, em assets/especiais): as folhas do balanco e o que fica no tronco de pulo alto.
-let arteGalho = 'esp_galho1';
+let arteGalho = 'esp_galho3';
 let arteMola = 'esp_mola1';
 // Poderes em bolhas sobre alguns troncos: o primeiro perto de troncoPoderes, depois a cada 22 a 34.
 const troncoPoderes = 12;
