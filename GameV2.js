@@ -54,19 +54,16 @@ const enquadramentoCenario = {
     jogo: 0.40,
     duracao: 900
 };
-// Previa do cenario redesenhado (cenario-novo.html). No jogo oficial fica desligada.
-const previaCenario = window.previaCenario === true;
-// Medidas das faixas do cenario (iguais as da ferramenta que as gera). `larguraMadeira` e a
-// largura, em px da arte, que o enquadramento trata como a madeira, e `esticamento` alarga a
-// arte na horizontal; `fimCopa` e o tronco em que a copa do pinheiro sai da tela. O cenario novo
-// (ferramentas/montar-cenario-ia.html, com as imagens geradas por IA) e 1,5x mais detalhado, nao e
-// esticado e sobe no mesmo ritmo do antigo; a copa dele e mais baixa, entao sai da tela antes.
-const texturaCenario = previaCenario ? {
-    pasta: 'assets/cenario-novo', largura: 1024, altura: 12264, alturaFaixa: 2044, margem: 2,
-    centroTronco: 512, larguraMadeira: 273.75, esticamento: 1, fimCopa: 157
-} : {
-    pasta: 'assets/cenario', largura: 1399, altura: 8192, alturaFaixa: 2044, margem: 2,
-    centroTronco: 665, larguraMadeira: 182.5, esticamento: 1.15, fimCopa: 175
+// Medidas das faixas em assets/cenario/ (iguais as de ferramentas/montar-cenario-ia.html, que monta
+// o cenario com as imagens geradas por IA). `centroTronco` e o eixo do tronco e `larguraMadeira` a
+// largura da madeira, em px da arte; o enquadramento encaixa essa madeira na tela.
+const texturaCenario = {
+    largura: 1024,
+    altura: 12264,
+    alturaFaixa: 2044,
+    margem: 2,
+    centroTronco: 512,
+    larguraMadeira: 273.75
 };
 // Cada tronco fica em media 212 acima do anterior (190 a 235, em gerarPlataformas).
 const alturaPorTronco = 212;
@@ -99,7 +96,7 @@ const fasesCeu = [
 // A ultima fase e o espaco.
 const faseEspaco = fasesCeu.length - 1;
 // A copa do pinheiro sai de cima da tela por volta deste tronco; so dai o espaco comeca a andar.
-const troncoFimCopa = texturaCenario.fimCopa;
+const troncoFimCopa = 157;
 // A partir de 160 troncos o jogo para de acelerar (3x a velocidade inicial).
 const velocidadeMaxima = 3;
 // Passaros inimigos aparecem a partir deste tronco; cada bicada derruba alguns granulados.
@@ -860,7 +857,7 @@ function preload() {
     // As faixas vem sem o degrade do ceu, que e desenhado no jogo (criarCeu).
     const quantidadeFaixas = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
     for (let i = 0; i < quantidadeFaixas; i++) {
-        this.load.image('cenario_' + i, `${texturaCenario.pasta}/cenario-${i}.webp`);
+        this.load.image('cenario_' + i, `assets/cenario/cenario-${i}.webp`);
     }
     // Os SVGs dos troncos sao rasterizados no tamanho em que aparecem (e nao nos 1150 px originais).
     this.load.svg('troncoLiso', 'assets/tronco liso.svg', { width: 384, height: 86 });
@@ -1983,29 +1980,6 @@ function criarHud(cena) {
             delay: 400 + i * 80, ease: 'Back.easeOut'
         });
     });
-    if (previaCenario) criarBotaoSubir(cena);
-}
-
-// So na previa do cenario: um super pulo para ver a arte inteira rapido, com a altura ao lado.
-function criarBotaoSubir(cena) {
-    const botao = cena.add.text(10, 58, '▲ SUBIR', {
-        resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold',
-        color: '#382017', backgroundColor: '#ffd24a', padding: { x: 10, y: 6 }
-    }).setScrollFactor(0).setDepth(12).setInteractive({ useHandCursor: true });
-    botao.on('pointerdown', (ponteiro, xLocal, yLocal, evento) => {
-        // Nao deixa o toque retomar a pausa.
-        evento.stopPropagation();
-        if (!cena.iniciado || cena.morreu || cena.pausado) return;
-        aplicarImpulsoDourado(cena.caixa, 1500);
-    });
-    const altura = cena.add.text(84, 70, '', {
-        resolution: 4, fontFamily: 'Arial', fontSize: '11px', fontStyle: 'bold',
-        color: corTexto, stroke: '#1a0e08', strokeThickness: 3
-    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(12);
-    const mostrar = () => altura.setText(`${Math.floor(cena.alturaMax / alturaPorTronco)} troncos de altura`);
-    mostrar();
-    cena.events.on('update', mostrar);
-    cena.events.once('shutdown', () => cena.events.off('update', mostrar));
 }
 
 // Botao redondo de madeira com um icone claro desenhado por cima.
@@ -3669,8 +3643,8 @@ function enquadrarCenario(cena, larguraTronco, duracao = 900, aoConcluir = () =>
 function atualizarCenario(cena, delta) {
     const fundo = cena.cenario;
     const escala = config.width * fundo.larguraTronco / texturaCenario.larguraMadeira;
-    // Centraliza pela madeira da arte e, no cenario antigo, alarga a arte em 15%.
-    fundo.base.setScale(escala * texturaCenario.esticamento, escala);
+    // Centraliza pela madeira da arte, sem esticar.
+    fundo.base.setScale(escala);
     fundo.base.x = config.width / 2;
     fundo.alvo = Math.max(fundo.alvo,
         (fundo.alturaInicialGato - cena.caixa.y) * fundo.paralaxe);
@@ -4542,8 +4516,7 @@ function vestirGato(cena, gato, loja = cena.loja) {
 // super pulo, placar alterado por fora ou altura demais em 10 s de relogio de verdade. Os limites tem
 // folga de sobra para o granulado dourado e a mola; o relogio do jogo nunca anda mais rapido que o real.
 function vigiarPartida(cena) {
-    // Na previa do cenario o botao SUBIR voa de proposito.
-    if (cena.trapaca || previaCenario) return;
+    if (cena.trapaca) return;
     const velocidade = cena.velocidadeJogo;
     const vigia = cena.vigia;
     let motivo = null;

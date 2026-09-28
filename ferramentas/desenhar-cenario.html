@@ -18,7 +18,9 @@
   <p>
     Desenha em codigo todo o cenario (tronco, raizes, floresta, montanhas, cachoeira, nuvens, galhos,
     detalhes e a copa do pinheiro) e gera as faixas WebP que o jogo carrega. O fundo fica transparente:
-    o ceu e desenhado pelo jogo. Salve os arquivos baixados em <code>assets/cenario-novo/</code>.
+    o ceu e desenhado pelo jogo. Primeira tentativa do cenario novo, trocada pelas imagens de IA
+    (<code>montar-cenario-ia.html</code>); hoje serve so para os guias de <code>arte-cenario-ia/guias/</code>.
+    Nao salve estas faixas no jogo.
   </p>
   <p>Abra esta pagina pelo servidor local do jogo (por exemplo http://localhost:8000/ferramentas/desenhar-cenario.html).</p>
   <button id="gerar">Desenhar faixas</button>
@@ -1575,7 +1577,7 @@
       lista.innerHTML = '';
       try {
         const faixas = await gerarFaixas((texto) => { estado.textContent = texto; });
-        estado.textContent = 'Pronto! Clique em cada faixa para baixar e salve em assets/cenario-novo/.';
+        estado.textContent = 'Pronto! Clique em cada faixa para baixar e use como guia (o jogo usa o cenario da IA).';
         for (const faixa of faixas) {
           const url = URL.createObjectURL(faixa.blob);
           lista.insertAdjacentHTML('beforeend', `<figure><a href="${url}" download="${faixa.nome}">

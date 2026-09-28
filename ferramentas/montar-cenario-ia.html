@@ -19,14 +19,14 @@
     Junta as imagens geradas por IA de <code>arte-cenario-ia/recebidas/</code> (pe da arvore, dois trechos
     do tronco, copa, nuvens e galhos): tira o fundo magenta, deixa todos os troncos com a mesma largura
     e no mesmo eixo, empilha com emendas suavizadas, espalha nuvens e galhos e gera as faixas WebP do
-    jogo. Salve os arquivos baixados em <code>assets/cenario-novo/</code>.
+    jogo. Salve os arquivos baixados em <code>assets/cenario/</code>.
   </p>
   <p>Abra esta pagina pelo servidor local do jogo (por exemplo http://localhost:8000/ferramentas/montar-cenario-ia.html).</p>
   <button id="gerar">Montar faixas</button>
   <p id="estado"></p>
   <div id="faixas"></div>
   <script>
-    // Mesmas medidas do cenario novo em GameV2.js (texturaCenario da previa).
+    // Mesmas medidas de texturaCenario em GameV2.js.
     const arte = { largura: 1024, altura: 12264, alturaFaixa: 2044, margem: 2, centro: 512 };
     // Largura do tronco na arte e quantas linhas cada emenda leva para trocar de uma imagem para a outra.
     const larguraTronco = 315;
@@ -244,7 +244,7 @@
       lista.innerHTML = '';
       try {
         const faixas = await gerarFaixas((texto) => { estado.textContent = texto; });
-        estado.textContent = 'Pronto! Clique em cada faixa para baixar e salve em assets/cenario-novo/.';
+        estado.textContent = 'Pronto! Clique em cada faixa para baixar e salve em assets/cenario/.';
         for (const faixa of faixas) {
           const url = URL.createObjectURL(faixa.blob);
           lista.insertAdjacentHTML('beforeend', `<figure><a href="${url}" download="${faixa.nome}">
