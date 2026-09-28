@@ -91,9 +91,8 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   as vezes param no meio e disparam, ficam mais frequentes e vem em dupla, para o jogador nao decorar o padrao. Enfeites atras dos troncos
   (`atualizarVidaFundo`), pela fase do ceu: borboletas no dia e fim de tarde, bandos de passarinhos ate o por
   do sol e vaga-lumes a noite. Sao menores e mais apagados que o passaro inimigo, para nao confundir.
-- **Poderes e balanco desligados:** o usuario aprovou o resto do pacote, mas ainda vai decidir sobre os poderes, e o
-  balanco de cipo precisa de acerto. Os dois ficam no codigo e desligados pelos interruptores `ativarPoderes` e
-  `ativarBalanco` (sem poderes, a missao "Pegue N poderes" sai do sorteio). So ligue quando o usuario aprovar.
+- **Poderes desligados:** o usuario ainda vai decidir sobre eles. Ficam no codigo, desligados pelo interruptor
+  `ativarPoderes` (sem poderes, a missao "Pegue N poderes" sai do sorteio). So ligue quando o usuario aprovar.
 - **Poderes** (`poderes`, `criarItemPoder`, `ativarPoder`, `atualizarPoderes`): bolhas no meio de alguns troncos,
   a primeira perto de `troncoPoderes` e depois a cada 22 a 34. **Ima** puxa os granulados perto (`raioIma`),
   **escudo** segura uma bicada (so aparece depois de `troncoPassaros`) e **pacote furado** faz o pacote do
@@ -103,16 +102,12 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   com uma bicada ou quando o gato pousa num tronco novo deixando para tras o granulado de um tronco ja pisado
   (os pulados pela mola ou pelo super pulo nao contam). Etiqueta embaixo da placa de granulados.
 - **Troncos especiais** (nunca rachados): **mola** (`montarMola`, `apertarMola`, `pularNaMola`, `impulsoMola`) a partir de
-  `troncoMola`, a cada 12 a 20; **balanco** a partir de `troncoBalanco`, a cada 14 a 22 (`montarBalanco`,
-  movimento `tipo: 'balanco'`). O usuario recusou os cipos (terminavam no meio do caminho e nao combinaram com o
-  jogo) e a gangorra (nao fazia sentido com um pulo so). Em teste em `estiloBalanco`: **corda** (duas cordas como
-  as da placa do menu, presas num galho com folhas logo acima) e **galho** (afunda e quica como trampolim; mexe
-  uma copia da imagem, `plataforma.visual`, e deixa o corpo do pulo reto).
-- **Artes dos especiais:** o usuario achou simples demais as folhas e a mola desenhadas no codigo. As novas foram
-  geradas no Magnific com a arte do menu como referencia de estilo e ficam em `assets/especiais/` (folhas:
-  `galho1-3`; pulo alto: `mola1-2` e `cogumelo1-2`), escolhidas por `arteGalho` e `arteMola` enquanto o usuario
-  compara. Depois da escolha, apague as que sobrarem. A mola encolhe sob os pes do gato enquanto ele desce
-  (`apertarMola`), para ele nao entrar na arte.
+  `troncoMola`, a cada 12 a 20; **balanco de corda** a partir de `troncoBalanco`, a cada 14 a 22 (`montarBalanco`,
+  movimento `tipo: 'balanco'`): duas cordas como as da placa do menu, presas num galho com folhas logo acima.
+  O usuario recusou os cipos (terminavam no meio do caminho), a gangorra e o "galho mole" que quicava.
+- **Artes dos especiais** (geradas no Magnific com a arte do menu como referencia de estilo; as desenhadas no codigo
+  ficaram simples demais): `assets/especiais/galho.webp` (folhas do balanco) e `assets/especiais/mola.webp`.
+  A mola encolhe sob os pes do gato enquanto ele desce (`apertarMola`), para ele nao entrar na arte.
 
 - **Primeira partida guiada:** na primeira partida do aparelho uma mao (indicador, nunca o dedo do meio no centro
   da palma) arrasta de um lado para o outro na metade de baixo com "Arraste o dedo aqui embaixo" e some
@@ -120,6 +115,30 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
   cada novidade na primeira vez que ela aparece (`dicasJogo`: tronco rachado, passaro, bolha de poder, mola,
   combo), uma por vez e so uma vez por aparelho (`chaveDicas`). A mao e temporaria: o controle continua sem
   marcacao visivel.
+
+## Anti-trapaca (pedido do usuario)
+
+Um programador achou o atalho de teste e subiu voando para se gabar do recorde. Nao da para impedir 100% (o
+jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma peca em quem trapaceia.
+- **Codigo embrulhado:** todo o `GameV2.js` fica dentro de `(() => { ... })();`, para `game` e as funcoes nao
+  aparecerem no console. Os testes e a previa tiram essa embalagem para enxergar o jogo por dentro.
+- **Shift + B virou isca:** o super pulo ainda funciona por um instante e entrega o trapaceiro. Nao use para
+  testar; a previa tem os seus botoes (incluindo "Simular trapaca").
+- **Vigia** (`vigiarPartida`, a cada quadro): gravidade diferente de `gravidadeBase * velocidade^2`, subida mais
+  rapida que `650 * velocidade + 80` (o dourado e 640), placar diferente do espelho `vigia.moedas`/`vigia.troncos`
+  ou mais de `2600 * velocidade` de altura em 10 s de relogio real. **Qualquer coisa nova que mude placar,
+  impulso, gravidade ou teleporte o gato precisa atualizar o vigia ou caber nesses limites**, senao um jogador
+  honesto leva a peca.
+- **Recorde lacrado** (`salvarRecorde`, `selarRecorde`): lacre que nao bate (editado a mao) ou recorde antigo
+  impossivel (`recordeImpossivel`: altura ou granulados muito acima do que os troncos permitem) contam como trapaca.
+- **A peca** (`detectarTrapaca` e, 2,2 s depois, `pregarPeca`): o guaxinim chega voando rindo ("Achou que ia me
+  passar voando?"), poe um nariz de palhaco no gato (buzina "FON FON"), leva os granulados e os troncos do placar
+  para o pacote ("Valeu pelos granulados, trapaceiro!") e vai embora; o gato cai. Derrota com o carimbo
+  "TRAPACA DETECTADA", recorde zerado e nada no cofrinho; missoes nao contam.
+- **Nariz de palhaco** (`chavePerfil`, `criarNariz`, `tamanhoNariz`): fica no gato da partida e no gato da pintura
+  do menu, com "Recorde: 0 · Trapaceiro". O cartao de compartilhar sai com o nariz, o carimbo "TRAPACEIRO" e
+  "Tentei trapacear e o guaxinim me pegou!". Sai sozinho depois de `troncosPerdao` (50) troncos numa partida limpa
+  (`devolverNariz`), o que tambem desfaz um alarme falso.
 
 ## Menus
 
