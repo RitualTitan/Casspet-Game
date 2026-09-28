@@ -1,3 +1,6 @@
+// Todo o jogo fica dentro desta funcao para nao ficar exposto no console do navegador
+// (quem digitasse "game" la podia mexer em tudo). Os testes e a previa tiram esta embalagem.
+(() => {
 
 const telaDeToque = window.matchMedia('(pointer: coarse)').matches;
 // A altura do mundo acompanha o formato da tela: 640 em 9:16 e ate 860 nos
@@ -12,6 +15,8 @@ const tamanhoPose = 512;
 const larguraGranulado = 256;
 // As tabuas de madeira sao desenhadas em 3x e exibidas com escala 1/3, para ficarem nitidas.
 const escalaMadeira = 3;
+// Gravidade na velocidade inicial; o vigia anti-trapaca confere se ninguem mexeu nela.
+const gravidadeBase = 300;
 // "1 granulado", "2 granulados".
 const contar = (quantidade, palavra) => `${quantidade} ${palavra}${quantidade === 1 ? '' : 's'}`;
 const config = {
@@ -28,7 +33,7 @@ const config = {
         arcade: {
             // Atualiza o movimento a cada quadro, inclusive em telas acima de 60 Hz.
             fixedStep: false,
-            gravity: { y: 300 },
+            gravity: { y: gravidadeBase },
             debug: false
         }
     },
@@ -102,9 +107,8 @@ const troncoPassaros = 25;
 const granuladosBicada = 3;
 // Granulados que escapam do pacote quando o gato encosta no guaxinim distraido.
 const granuladosSusto = 5;
-// Interruptores: os poderes e o balanco de cipo ficam desligados no jogo publicado ate o usuario decidir.
+// Interruptor: os poderes ficam desligados no jogo publicado ate o usuario decidir.
 const ativarPoderes = false;
-const ativarBalanco = false;
 // Poderes em bolhas sobre alguns troncos: o primeiro perto de troncoPoderes, depois a cada 22 a 34.
 const troncoPoderes = 12;
 const poderes = {
@@ -115,7 +119,7 @@ const poderes = {
 const raioIma = 150;
 // Granulados pegos em sequencia, sem deixar nenhum para tras, valem x2 e depois x3.
 const niveisCombo = [{ seguidos: 10, vale: 3 }, { seguidos: 5, vale: 2 }];
-// Troncos especiais: a mola joga o gato bem alto; o balanco fica pendurado em cipos.
+// Troncos especiais: a mola joga o gato bem alto; o balanco fica pendurado por cordas num galho.
 const troncoMola = 30;
 const troncoBalanco = 45;
 const impulsoMola = 580;
@@ -128,6 +132,12 @@ const superficieChao = 104 / 229;
 // em telas mais altas o espaco extra aparece acima dele.
 const folgaAbaixoGato = 340;
 const chaveRecorde = 'granulando.recorde';
+// Anti-trapaca: o recorde vai lacrado e quem trapaceia leva uma peca do guaxinim e fica com nariz de
+// palhaco (marcado em chavePerfil) ate subir troncosPerdao troncos numa partida limpa.
+const chavePerfil = 'granulando.perfil';
+const troncosPerdao = 50;
+// Diametro do nariz de palhaco, em larguras da cabeca do gato.
+const tamanhoNariz = 0.28;
 const chaveMudo = 'granulando.mudo';
 // Dicas da primeira vez: cada uma aparece uma unica vez neste aparelho.
 const chaveDicas = 'granulando.dicas';
@@ -206,6 +216,14 @@ const cabecaGato = {
     quasePulando: { topo: [1340, 700], olhos: [1488, 1008], pescoco: [1320, 1272], largura: 840, angulo: 5 },
     pulando: { topo: [1020, 300], olhos: [1212, 640], pescoco: [1160, 1060], largura: 1060, angulo: -10 },
     caindo: { topo: [1020, 420], olhos: [1152, 728], pescoco: [1140, 1072], largura: 920, angulo: -8 }
+};
+// Focinho (na grade de 2048) e largura da cabeca dos outros bichos, para o nariz de palhaco do trapaceiro.
+// Um bicho novo com arte precisa entrar aqui, senao o nariz some quando ele e o escolhido.
+const narizBichos = {
+    coelho_mascote_1: { ponto: [1050, 912], largura: 760 },
+    coelho_quasePulando: { ponto: [1551, 1121], largura: 760 },
+    coelho_pulando: { ponto: [1280, 778], largura: 720 },
+    coelho_caindo: { ponto: [1085, 882], largura: 760 }
 };
 // Ponto de apoio, tamanho (em larguras de cabeca) e origem da textura de cada acessorio.
 const encaixeAcessorio = {
@@ -356,6 +374,7 @@ function lerProgressoMissoes() {
 
 // Avanca uma missao: em "partida" guarda o melhor valor, em "dia" soma. Paga o premio ao cumprir.
 function registrarMissao(cena, id, valor) {
+    if (cena.trapaca) return;
     const missao = missoesDoDia().find((item) => item.id === id);
     if (!missao) return;
     const estado = lerProgressoMissoes();
@@ -407,11 +426,52 @@ function itemEquipado(loja, grupo) {
 
 function lerRecorde() {
     const salvo = lerArmazenado(chaveRecorde, {}) || {};
-    return {
+    const recorde = {
         granulados: Number(salvo.granulados) || 0,
         troncos: Number(salvo.troncos) || 0,
-        altura: Number(salvo.altura) || 0
+        altura: Math.round(Number(salvo.altura) || 0)
     };
+    if (!recorde.granulados && !recorde.troncos && !recorde.altura) return recorde;
+    // Lacre que nao bate e recorde mexido a mao; os antigos, sem lacre, so passam se forem possiveis.
+    const adulterado = salvo.selo ? salvo.selo !== selarRecorde(recorde) : recordeImpossivel(recorde);
+    if (adulterado) {
+        marcarTrapaceiro();
+        const zerado = { granulados: 0, troncos: 0, altura: 0 };
+        salvarRecorde(zerado);
+        return zerado;
+    }
+    if (!salvo.selo) salvarRecorde(recorde);
+    return recorde;
+}
+
+function salvarRecorde(recorde) {
+    const limpo = { granulados: recorde.granulados, troncos: recorde.troncos, altura: Math.round(recorde.altura) };
+    salvarArmazenado(chaveRecorde, { ...limpo, selo: selarRecorde(limpo) });
+}
+
+function selarRecorde(recorde) {
+    let conta = 5381;
+    for (const letra of `${recorde.granulados}|${recorde.troncos}|${Math.round(recorde.altura)}|casspet`) {
+        conta = (conta * 33 + letra.charCodeAt(0)) >>> 0;
+    }
+    return conta.toString(36);
+}
+
+// Quem sobe voando passa muitos troncos sem pousar neles: a altura (ou os granulados) fica muito
+// acima do que os troncos permitem. Os limites tem folga de sobra para o super pulo e a mola.
+function recordeImpossivel(recorde) {
+    // Versoes antigas nao guardavam os troncos; sem eles nao da para comparar.
+    if (!recorde.troncos) return false;
+    return recorde.altura > recorde.troncos * 360 + 3000 || recorde.granulados > recorde.troncos * 3 + 200;
+}
+
+function temNariz() {
+    const perfil = lerArmazenado(chavePerfil, {}) || {};
+    return perfil.palhaco === true;
+}
+
+function marcarTrapaceiro() {
+    salvarArmazenado(chavePerfil, { palhaco: true });
 }
 
 // Efeitos sonoros sintetizados na hora, sem arquivos de audio.
@@ -550,6 +610,18 @@ const som = {
         [784, 988, 1175, 1568].forEach((frequencia, i) =>
             this.tom(frequencia, 0.13, { tipo: 'sine', volume: 0.13, atraso: 0.03 + i * 0.06 }));
         this.vibrar(20);
+    },
+    // Buzina de palhaco: fon fon.
+    buzina() {
+        [0, 0.2].forEach((atraso) => {
+            this.tom(330, 0.16, { tipo: 'square', volume: 0.12, ate: 300, atraso });
+            this.tom(165, 0.16, { tipo: 'sawtooth', volume: 0.06, atraso });
+        });
+        this.vibrar([60, 80, 60]);
+    },
+    // Cada granulado levado pelo guaxinim soa um pouco mais grave.
+    roubo(indice) {
+        this.tom(1300 - indice * 55, 0.07, { tipo: 'square', volume: 0.05 });
     },
     fimPoder() {
         this.tom(880, 0.16, { tipo: 'sine', volume: 0.07, ate: 440 });
@@ -787,6 +859,9 @@ function preload() {
             this.load.image(bicho.id + '_' + pose, bicho.arte + arquivo + '.webp'));
     });
     this.load.image('moeda', 'assets/granulado.webp');
+    // Galho com folhas do balanco e mola do tronco de pulo alto (feitos no Magnific, no estilo do menu).
+    this.load.image('esp_galho', 'assets/especiais/galho.webp');
+    this.load.image('esp_mola', 'assets/especiais/mola.webp');
     this.load.svg('moedaDourada', 'assets/granulado-dourado.svg', { width: larguraGranulado, height: larguraGranulado });
     this.load.image('introducao', 'assets/inicio.webp');
     this.load.image('historia', 'assets/historia.webp');
@@ -823,6 +898,10 @@ function create(data = {}) {
     this.ultimoPoder = null;
     this.proximaMola = troncoMola + Phaser.Math.Between(0, 6);
     this.dicasVistas = lerArmazenado(chaveDicas, []);
+    // Vigia da partida: confere placar, gravidade e subida; trapaca vira a peca do guaxinim.
+    this.vigia = { amostras: [], moedas: 0, troncos: 0 };
+    this.trapaca = null;
+    this.pegandoTrapaceiro = false;
     this.filaDicas = [];
     this.dicaAberta = null;
     this.esperaDicas = 0;
@@ -830,6 +909,7 @@ function create(data = {}) {
     this.proximoBalanco = troncoBalanco + Phaser.Math.Between(0, 6);
     this.alturaMax = 0;
     this.recorde = lerRecorde();
+    this.nariz = temNariz();
     this.passouRecorde = false;
     this.vendoHistoria = false;
     // Numero do tronco mais alto em que o gato ja pousou; o guaxinim foge a partir dele.
@@ -848,7 +928,7 @@ function create(data = {}) {
     this.passaros = [];
     this.esperaPassaro = 2500;
     this.vidaFundo = { esperaBorboleta: 2500, esperaBando: 6000, esperaVagalume: 0 };
-    this.physics.world.gravity.y = config.physics.arcade.gravity.y;
+    this.physics.world.gravity.y = gravidadeBase;
     const cenarioFundo = this.add.container(config.width / 2, config.height)
         .setScrollFactor(0).setDepth(-2);
     const quantidadeFaixas = Math.ceil(texturaCenario.altura / texturaCenario.alturaFaixa);
@@ -985,7 +1065,17 @@ function create(data = {}) {
         padding: { x: 8, y: 6 }
     }).setOrigin(0.5);
     const itensInicio = [fundoInicio, arteInicio, dicaInicio];
-    if (this.recorde.granulados > 0 || this.recorde.troncos > 0) {
+    if (this.nariz) {
+        // Quem trapaceou ve o apelido no lugar do recorde e como tirar o nariz.
+        itensInicio.push(this.add.text(180, yArte(1390), 'Recorde: 0 · Trapaceiro', {
+            resolution: 4, fontFamily: 'Arial', fontSize: '13px', fontStyle: 'bold',
+            color: '#ffffff', backgroundColor: '#d9452f', padding: { x: 10, y: 5 }
+        }).setOrigin(0.5), this.add.text(180, yArte(1390) + 24,
+            `Suba ${troncosPerdao} troncos jogando limpo para tirar o nariz`, {
+                resolution: 4, fontFamily: 'Arial', fontSize: '11px', fontStyle: 'bold',
+                color: '#fff4d6', stroke: '#2a1410', strokeThickness: 3
+            }).setOrigin(0.5));
+    } else if (this.recorde.granulados > 0 || this.recorde.troncos > 0) {
         itensInicio.push(this.add.text(180, yArte(1390),
             `Recorde: ${contar(this.recorde.granulados, 'granulado')} · ${contar(this.recorde.troncos, 'tronco')}`, {
                 resolution: 4, fontFamily: 'Arial', fontSize: '13px', fontStyle: 'bold',
@@ -1010,6 +1100,16 @@ function create(data = {}) {
         fontStyle: 'bold', color: '#4d2710', stroke: '#f6c98f', strokeThickness: Math.max(1, Math.round(3 * escalaInicio))
     }).setOrigin(0.5);
     itensInicio.push(remendo, iconeLoja, textoLoja);
+    // O gato da pintura do menu tambem ganha o nariz de palhaco do trapaceiro, que balanca de vez em quando.
+    if (this.nariz) {
+        const escalaNariz = 28 * escalaInicio / 81;
+        const narizMenu = this.add.image(xArte(303), yArte(1150), 'ac_palhaco').setScale(escalaNariz);
+        this.tweens.add({
+            targets: narizMenu, scale: escalaNariz * 1.35, duration: 140, yoyo: true, repeat: 1,
+            loop: -1, loopDelay: 2200
+        });
+        itensInicio.push(narizMenu);
+    }
     // Missoes do dia: botao redondo no alto do menu, com quantas ja foram feitas hoje.
     const feitasHoje = lerProgressoMissoes().feitas.length;
     const iconeMissoes = this.add.graphics();
@@ -1326,6 +1426,13 @@ function criarTexturasPoderes(g) {
         [[23, 20, 2], [25.5, 24, 1.8], [22.5, 27, 1.6]].forEach(([x, y, r]) =>
             g.fillStyle(contorno, 1).fillCircle(x, y, r + 0.8).fillStyle(0xd9a55f, 1).fillCircle(x, y, r));
     });
+    // Nariz de palhaco: bolinha vermelha com brilho.
+    desenhar('ac_palhaco', 30, 30, () => {
+        g.fillStyle(contorno, 1).fillCircle(15, 15, 13.5);
+        g.fillStyle(0xe8232f, 1).fillCircle(15, 15, 11.5);
+        g.fillStyle(0xff6b6b, 1).fillCircle(12.5, 12.5, 6);
+        g.fillStyle(0xffffff, 0.9).fillCircle(10.5, 10.5, 2.6);
+    });
     // Bolha transparente com reflexo.
     desenhar('pw_bolha', 48, 48, () => {
         g.fillStyle(0xffffff, 0.14).fillCircle(24, 24, 21);
@@ -1349,18 +1456,6 @@ function criarTexturasPoderes(g) {
         g.lineStyle(2.5, 0xbfe6ff, 0.9).strokeCircle(48, 48, 45);
         g.lineStyle(4, 0xffffff, 0.7).beginPath().arc(48, 48, 38, Math.PI * 1.1, Math.PI * 1.45, false).strokePath();
         g.lineStyle(2, 0xffffff, 0.5).beginPath().arc(48, 48, 38, Math.PI * 0.15, Math.PI * 0.3, false).strokePath();
-    });
-    // Mola: base, espiral prateada e tampa vermelha.
-    desenhar('fx_mola', 44, 22, () => {
-        g.fillStyle(contorno, 1).fillRoundedRect(10, 17, 24, 5, 2);
-        g.fillStyle(0x6c7488, 1).fillRoundedRect(11.5, 18, 21, 3, 1);
-        const espiral = [];
-        for (let i = 0; i <= 6; i++) espiral.push({ x: i % 2 ? 29 : 15, y: 18 - i * 2.2 });
-        g.lineStyle(4.5, contorno, 1).strokePoints(espiral, false);
-        g.lineStyle(2.2, 0xd8dee6, 1).strokePoints(espiral, false);
-        g.fillStyle(contorno, 1).fillRoundedRect(2, 0, 40, 7, 3.5);
-        g.fillStyle(0xe8453c, 1).fillRoundedRect(3.5, 1.2, 37, 4.6, 2.3);
-        g.fillStyle(0xff9a8a, 1).fillRoundedRect(6, 1.8, 14, 1.6, 0.8);
     });
 }
 
@@ -1789,6 +1884,7 @@ function bicarGato(cena, passaro) {
     const perdidos = Math.min(granuladosBicada, cena.totalMoedas);
     if (perdidos > 0) {
         cena.totalMoedas -= perdidos;
+        cena.vigia.moedas -= perdidos;
         atualizarHud(cena);
         pulsarHud(cena, cena.hud.granulados);
         cena.efeitos.granulos.explode(perdidos * 2, caixa.x, caixa.y);
@@ -2005,7 +2101,7 @@ function voarParaPlacar(cena, x, y, textura, escala) {
 }
 
 function alternarPausa(cena, pausar = !cena.pausado) {
-    if (!cena.iniciado || cena.morreu || pausar === cena.pausado) return;
+    if (!cena.iniciado || cena.morreu || cena.pegandoTrapaceiro || pausar === cena.pausado) return;
     cena.pausado = pausar;
     if (!pausar) {
         cena.telaPausa.destroy();
@@ -2720,16 +2816,24 @@ function mostrarMorte(cena) {
     som.morte();
     cena.cameras.main.shake(240, 0.006);
 
+    // Quem trapaceou fica sem nada: nem recorde, nem granulados no cofrinho.
+    const trapaceou = Boolean(cena.trapaca);
+    if (trapaceou) {
+        cena.totalMoedas = 0;
+        cena.contador = 0;
+    }
     const anterior = cena.recorde;
     const jaTinhaRecorde = anterior.granulados > 0 || anterior.altura > 0;
-    const novoRecorde = jaTinhaRecorde &&
+    const novoRecorde = !trapaceou && jaTinhaRecorde &&
         (cena.totalMoedas > anterior.granulados || cena.alturaMax > anterior.altura);
-    cena.recorde = {
-        granulados: Math.max(anterior.granulados, cena.totalMoedas),
-        troncos: Math.max(anterior.troncos, cena.contador),
-        altura: Math.max(anterior.altura, cena.alturaMax)
-    };
-    salvarArmazenado(chaveRecorde, cena.recorde);
+    if (!trapaceou) {
+        cena.recorde = {
+            granulados: Math.max(anterior.granulados, cena.totalMoedas),
+            troncos: Math.max(anterior.troncos, cena.contador),
+            altura: Math.max(anterior.altura, cena.alturaMax)
+        };
+        salvarRecorde(cena.recorde);
+    }
     // Os granulados da partida vao para o cofrinho da loja.
     const loja = lerLoja();
     loja.saldo += cena.totalMoedas;
@@ -2758,9 +2862,9 @@ function mostrarMorte(cena) {
     centralizarPontos();
     const troncos = cena.add.text(0, -60, 'Troncos: ' + cena.contador,
         estilo(17, '#f4ddc9')).setOrigin(0.5);
-    const recorde = cena.add.text(0, -32,
-        `Recorde: ${contar(cena.recorde.granulados, 'granulado')} · ${contar(cena.recorde.troncos, 'tronco')}`,
-        estilo(13, '#c9a98a')).setOrigin(0.5);
+    const recorde = cena.add.text(0, -32, trapaceou ? 'O guaxinim levou tudo. Recorde: 0'
+        : `Recorde: ${contar(cena.recorde.granulados, 'granulado')} · ${contar(cena.recorde.troncos, 'tronco')}`,
+        estilo(13, trapaceou ? '#ff8a6a' : '#c9a98a', trapaceou ? { fontStyle: 'bold' } : {})).setOrigin(0.5);
     const cofrinho = cena.add.text(0, -8, `Cofrinho: ${contar(loja.saldo, 'granulado')}`,
         estilo(13, '#ffd24a', { fontStyle: 'bold' })).setOrigin(0.5);
     let reiniciando = false;
@@ -2827,6 +2931,14 @@ function mostrarMorte(cena) {
         targets: convite.rotulo, scale: 1.06, delay: 900, duration: 650,
         yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
     });
+    if (trapaceou) {
+        const selo = cena.add.text(0, -202, 'TRAPAÇA DETECTADA', estilo(16, '#ffffff', {
+            fontStyle: 'bold', backgroundColor: '#d9452f', padding: { x: 12, y: 6 }
+        })).setOrigin(0.5).setAngle(-6);
+        painel.add(selo);
+        cena.time.delayedCall(500, () => som.buzina());
+        cena.tweens.add({ targets: selo, angle: 6, duration: 180, yoyo: true, repeat: 5, delay: 400 });
+    }
     if (novoRecorde) {
         const selo = cena.add.text(0, -202, 'NOVO RECORDE!', estilo(16, '#3b2418', {
             fontStyle: 'bold', backgroundColor: '#ffd24a', padding: { x: 12, y: 6 }
@@ -2862,7 +2974,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     if (!chao && numero >= cena.proximaMola) {
         especial = 'mola';
         cena.proximaMola = numero + Phaser.Math.Between(12, 20);
-    } else if (ativarBalanco && !chao && numero >= cena.proximoBalanco) {
+    } else if (!chao && numero >= cena.proximoBalanco) {
         especial = 'balanco';
         cena.proximoBalanco = numero + Phaser.Math.Between(14, 22);
     }
@@ -2887,17 +2999,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     const noEspaco = cena.ceu && cena.ceu.fase >= faseEspaco;
     const amplitude = noEspaco ? 55 : 40;
     if (especial === 'balanco') {
-        // Pendurado em dois cipos: vai e volta num arco, sempre na horizontal.
-        const margemMovimento = plataforma.displayWidth / 2 + 12 + 45;
-        plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento, config.width - margemMovimento);
-        plataforma.body.updateFromGameObject();
-        plataforma.movimento = {
-            tipo: 'balanco', centro: plataforma.x, yBase: plataforma.y, comprimento: 260,
-            fase: Phaser.Math.FloatBetween(0, Math.PI * 2), sentido: 1, amplitude: 45, velocidade: 1.8
-        };
-        plataforma.cipos = cena.add.graphics().setDepth(-0.5);
-        plataforma.once('destroy', () => plataforma.cipos.destroy());
-        desenharCipos(plataforma);
+        montarBalanco(cena, plataforma);
     } else if (!chao && (numero % 3 === 0 || (noEspaco && numero % 3 === 1))) {
         const margemMovimento = plataforma.displayWidth / 2 + 12 + amplitude;
         plataforma.x = Phaser.Math.Clamp(plataforma.x, margemMovimento,
@@ -2911,11 +3013,7 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
             velocidade: 1.2
         };
     }
-    if (especial === 'mola') {
-        plataforma.mola = cena.add.image(plataforma.x, topoTronco(plataforma) + 3, 'fx_mola')
-            .setOrigin(0.5, 1).setScale(1 / 3).setDepth(0.4);
-        plataforma.once('destroy', () => plataforma.mola.destroy());
-    }
+    if (especial === 'mola') montarMola(cena, plataforma);
     plataforma.body.checkCollision.down = false;
     plataforma.body.checkCollision.left = false;
     plataforma.body.checkCollision.right = false;
@@ -2932,33 +3030,64 @@ function criarPlataforma(cena, x, y, largura, chao = false) {
     }
 }
 
-// Dois cipos descem dos galhos la de cima ate as pontas do tronco do balanco.
-function desenharCipos(plataforma) {
+// Pendurado por duas cordas num galho com folhas: vai e volta num arco curto, sempre na horizontal.
+function montarBalanco(cena, plataforma) {
+    const margem = plataforma.displayWidth / 2 + 12 + 34;
+    plataforma.x = Phaser.Math.Clamp(plataforma.x, margem, config.width - margem);
+    plataforma.movimento = {
+        tipo: 'balanco', centro: plataforma.x, yBase: plataforma.y, comprimento: 118,
+        fase: Phaser.Math.FloatBetween(0, Math.PI * 2), sentido: 1, amplitude: 34, velocidade: 2.1, acompanharY: true
+    };
+    plataforma.cordas = cena.add.graphics().setDepth(-0.5);
+    // O galho fica por cima das pontas das cordas.
+    const folhagem = cena.add.image(plataforma.x, plataforma.y - 118, 'esp_galho').setOrigin(0.5, 0.62).setDepth(-0.4);
+    folhagem.setScale((plataforma.displayWidth * 0.68 + 70) / folhagem.width);
+    plataforma.folhagem = folhagem;
+    plataforma.body.updateFromGameObject();
+    plataforma.once('destroy', () => [plataforma.cordas, plataforma.folhagem].forEach((objeto) => objeto.destroy()));
+    atualizarBalanco(plataforma, 0);
+}
+
+// Duas cordas trancadas, como as da placa do menu, das pontas do tronco ate o galhinho.
+function desenharCordas(plataforma) {
     const movimento = plataforma.movimento;
-    const g = plataforma.cipos;
+    const g = plataforma.cordas;
     const afastamento = plataforma.displayWidth * 0.34;
-    const topo = movimento.yBase - movimento.comprimento;
+    const topo = movimento.yBase - movimento.comprimento + 2;
     g.clear();
     [-1, 1].forEach((lado) => {
         const baixoX = plataforma.x + lado * afastamento;
-        const baixoY = plataforma.y - 4;
+        const baixoY = plataforma.y - 6;
         const cimaX = movimento.centro + lado * afastamento;
-        g.lineStyle(5, 0x1f3414, 1).lineBetween(baixoX, baixoY, cimaX, topo);
-        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(baixoX, baixoY, cimaX, topo);
-        // Folhinhas ao longo do cipo.
-        for (let i = 1; i <= 3; i++) {
-            const t = i / 4;
-            const fx = Phaser.Math.Linear(baixoX, cimaX, t);
-            const fy = Phaser.Math.Linear(baixoY, topo, t);
-            const virada = i % 2 ? 1 : -1;
-            g.fillStyle(0x1f3414, 1).fillEllipse(fx + virada * 5, fy, 11, 6);
-            g.fillStyle(0x7cc242, 1).fillEllipse(fx + virada * 5, fy, 8, 4);
+        g.lineStyle(5.5, 0x4d2710, 1).lineBetween(baixoX, baixoY, cimaX, topo);
+        g.lineStyle(3, 0xd9b27a, 1).lineBetween(baixoX, baixoY, cimaX, topo);
+        // Marcas da tranca ao longo da corda.
+        const passos = Math.floor(Math.hypot(cimaX - baixoX, topo - baixoY) / 7);
+        g.lineStyle(1.3, 0x8a5a35, 1);
+        for (let i = 1; i < passos; i++) {
+            const t = i / passos;
+            const x = Phaser.Math.Linear(baixoX, cimaX, t);
+            const y = Phaser.Math.Linear(baixoY, topo, t);
+            g.lineBetween(x - 1.5, y + 1.5, x + 1.5, y - 1.5);
         }
-        // O cipo continua reto ate passar do alto da tela, nunca termina no meio do caminho.
-        const alto = Math.min(topo, plataforma.scene.cameras.main.scrollY - 20);
-        g.lineStyle(5, 0x1f3414, 1).lineBetween(cimaX, topo, cimaX, alto);
-        g.lineStyle(2.5, 0x5f8f34, 1).lineBetween(cimaX, topo, cimaX, alto);
+        g.fillStyle(0x4d2710, 1).fillCircle(baixoX, baixoY, 4).fillStyle(0xd9b27a, 1).fillCircle(baixoX, baixoY, 2.5);
     });
+}
+
+function atualizarBalanco(plataforma, delta) {
+    const movimento = plataforma.movimento;
+    movimento.fase += delta / 1000 * plataforma.scene.velocidadeJogo * movimento.velocidade;
+    const angulo = Math.asin(movimento.amplitude / movimento.comprimento) * Math.sin(movimento.fase);
+    plataforma.x = movimento.centro + Math.sin(angulo) * movimento.comprimento;
+    plataforma.y = movimento.yBase - movimento.comprimento * (1 - Math.cos(angulo));
+    plataforma.body.updateFromGameObject();
+    desenharCordas(plataforma);
+}
+
+// O gato pousou: as cordas dao um tranco para baixo.
+function reagirBalanco(cena, plataforma) {
+    const movimento = plataforma.movimento;
+    cena.tweens.add({ targets: movimento, yBase: movimento.yBase + 9, duration: 110, yoyo: true, ease: 'Quad.easeOut' });
 }
 
 function criarMoeda(cena, plataforma, dourada = false) {
@@ -3073,7 +3202,7 @@ function atualizarMoedas(cena, delta) {
         if (moeda.plataforma.active) {
             moeda.x = moeda.plataforma.x;
             // O balanco sobe um pouco nas pontas do arco; o granulado vai junto.
-            if (moeda.plataforma.movimento && moeda.plataforma.movimento.tipo === 'balanco') {
+            if (moeda.plataforma.movimento && moeda.plataforma.movimento.acompanharY) {
                 moeda.yBase = moeda.plataforma.y - 60;
             }
         }
@@ -3087,23 +3216,21 @@ function atualizarMoedas(cena, delta) {
 
 function atualizarPlataformasMoveis(cena, delta) {
     for (const plataforma of cena.plataformas.getChildren()) {
-        // A mola acompanha o tronco que se mexe.
-        if (plataforma.mola) plataforma.mola.x = plataforma.x;
+        // A mola acompanha o tronco que se mexe e encolhe sob os pes do gato.
+        if (plataforma.mola) {
+            plataforma.mola.x = plataforma.x;
+            apertarMola(cena, plataforma);
+        }
         const movimento = plataforma.movimento;
         if (!movimento) continue;
+        if (movimento.tipo === 'balanco') {
+            atualizarBalanco(plataforma, delta);
+            continue;
+        }
         movimento.fase += delta / 1000 * movimento.velocidade * cena.velocidadeJogo;
         const margem = plataforma.displayWidth / 2 + 12;
         const amplitude = Math.max(0, Math.min(movimento.amplitude,
             movimento.centro - margem, config.width - margem - movimento.centro));
-        if (movimento.tipo === 'balanco') {
-            // Pendulo: anda no arco dos cipos e sobe um pouquinho nas pontas.
-            const angulo = Math.asin(amplitude / movimento.comprimento) * Math.sin(movimento.fase);
-            plataforma.x = movimento.centro + Math.sin(angulo) * movimento.comprimento;
-            plataforma.y = movimento.yBase - movimento.comprimento * (1 - Math.cos(angulo));
-            plataforma.body.updateFromGameObject();
-            desenharCipos(plataforma);
-            continue;
-        }
         plataforma.x = movimento.centro + Math.sin(movimento.fase) * amplitude * movimento.sentido;
         // O corpo estatico acompanha a imagem para manter o salto no lugar certo.
         plataforma.body.updateFromGameObject();
@@ -3133,6 +3260,7 @@ function coletarMoeda(caixa, moeda) {
 
 function somarGranulado(cena, valor = 1) {
     cena.totalMoedas += valor;
+    cena.vigia.moedas += valor;
     cena.granuladosPegos += valor;
     registrarMissao(cena, 'granulados', cena.granuladosPegos);
     atualizarHud(cena);
@@ -3205,15 +3333,16 @@ function atualizarCombo(cena, pulsar) {
     }
 }
 
+// O antigo atalho de teste (Shift + B) virou isca: o super pulo funciona por um instante, mas entrega
+// o trapaceiro para o guaxinim.
 function configurarComandoSecreto(cena) {
-    // So em teste (previas e servidor local): no jogo publicado seria uma trapaca facil.
-    const emTeste = previaCenario || ['localhost', '127.0.0.1'].includes(location.hostname);
-    if (!emTeste || !cena.sys.game.device.os.desktop) return;
-    // Atalho oculto de PC: Shift + B durante a partida.
+    if (!cena.sys.game.device.os.desktop) return;
     const superImpulso = (evento) => {
         if (!evento.shiftKey || evento.ctrlKey || evento.altKey || evento.metaKey || evento.repeat) return;
-        if (!cena.iniciado || cena.morreu || cena.iniciando || cena.pausado) return;
+        if (!cena.iniciado || cena.morreu || cena.iniciando || cena.pausado || cena.pegandoTrapaceiro) return;
+        if (cena.trapaca && cena.trapaca.pego) return;
         aplicarImpulsoDourado(cena.caixa, 1200);
+        detectarTrapaca(cena, 'atalho');
     };
     cena.input.keyboard.on('keydown-B', superImpulso);
     cena.events.once('shutdown', () => {
@@ -3241,6 +3370,28 @@ function aplicarImpulsoDourado(caixa, forca = 640) {
     });
 }
 
+// Mola em cima do tronco, mais estreita que ele.
+function montarMola(cena, plataforma) {
+    const mola = cena.add.image(plataforma.x, topoTronco(plataforma) + 4, 'esp_mola').setOrigin(0.5, 1).setDepth(0.4);
+    mola.setScale(44 / mola.width);
+    mola.escalaBase = mola.scaleY;
+    mola.alturaBase = mola.displayHeight;
+    plataforma.mola = mola;
+    plataforma.once('destroy', () => mola.destroy());
+}
+
+// Enquanto o gato desce em cima dela, a mola vai encolhendo junto com os pes, para ele nao entrar na arte.
+function apertarMola(cena, plataforma) {
+    const mola = plataforma.mola;
+    if (cena.tweens.isTweening(mola)) return;
+    const corpo = cena.caixa.body;
+    const livre = mola.y - corpo.bottom;
+    const emCima = corpo.velocity.y > 0 && livre > -2 && livre < mola.alturaBase + 30 &&
+        Math.abs(corpo.center.x - plataforma.x) < plataforma.displayWidth / 2 + corpo.halfWidth;
+    const escala = emCima ? Phaser.Math.Clamp(livre / mola.alturaBase, 0.45, 1) : 1;
+    mola.scaleY = mola.escalaBase * escala;
+}
+
 // A mola encolhe com o peso e joga o gato bem mais alto que o pulo normal.
 function pularNaMola(cena, plataforma) {
     const caixa = cena.caixa;
@@ -3251,9 +3402,9 @@ function pularNaMola(cena, plataforma) {
     mostrarPopup(cena, plataforma.x, topoTronco(plataforma) - 24, 'BOING!', '#ffd24a', 16);
     const mola = plataforma.mola;
     cena.tweens.killTweensOf(mola);
-    mola.setScale(1 / 3, 0.45 / 3);
+    mola.scaleY = mola.escalaBase * 0.45;
     cena.tweens.add({
-        targets: mola, scaleY: 1 / 3, duration: 650,
+        targets: mola, scaleY: mola.escalaBase, duration: 650,
         ease: 'Elastic.easeOut', easeParams: [1.3, 0.3]
     });
 }
@@ -4019,6 +4170,33 @@ function gerarCartaoResultado(cena) {
         ctx.drawImage(imagem, -encaixe.origem[0] * largura, -encaixe.origem[1] * alturaAc, largura, alturaAc);
         ctx.restore();
     }
+    // O trapaceiro sai de nariz de palhaco e com um carimbo na foto.
+    const palhaco = temNariz();
+    const narizCartao = palhaco && narizDaPose(texturaPose(cena, 'mascote_1', loja));
+    if (narizCartao) {
+        const ponto = narizCartao.ponto;
+        const diametro = tamanhoNariz * narizCartao.largura / 2048 * lado / 27 * 30;
+        ctx.drawImage(cena.textures.get('ac_palhaco').getSourceImage(), xFigura + ponto[0] / 2048 * lado - diametro / 2,
+            yFigura + ponto[1] / 2048 * lado - diametro / 2, diametro, diametro);
+    }
+    if (palhaco) {
+        ctx.save();
+        ctx.translate(785, 585);
+        ctx.rotate(-0.2);
+        ctx.fillStyle = '#d9452f';
+        ctx.strokeStyle = '#fff4d6';
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.roundRect(-175, -46, 350, 92, 16);
+        ctx.fill();
+        ctx.stroke();
+        ctx.font = 'bold 44px "Arial Black", Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('TRAPACEIRO', 0, 4);
+        ctx.restore();
+    }
     // Pergaminho com os numeros da partida.
     ctx.fillStyle = '#fff4d6';
     ctx.strokeStyle = '#4d2710';
@@ -4042,7 +4220,12 @@ function gerarCartaoResultado(cena) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#7a4a2a';
     ctx.fillText('granulados', 540, 985);
-    escrever('Consegue me passar?', 540, 1140, 62);
+    if (palhaco) {
+        escrever('Tentei trapacear e', 540, 1108, 54);
+        escrever('o guaxinim me pegou!', 540, 1170, 54);
+    } else {
+        escrever('Consegue me passar?', 540, 1140, 62);
+    }
     ctx.font = 'bold 34px Arial, sans-serif';
     ctx.fillStyle = '#fff4d6';
     ctx.fillText('Casspet® - Granulando', 540, 1282);
@@ -4054,7 +4237,9 @@ function gerarCartaoResultado(cena) {
 
 // Abre o compartilhamento do celular com a imagem; sem ele, compartilha so o texto ou copia o link.
 async function compartilharResultado(cena, arquivo) {
-    const texto = `Subi ${contar(cena.contador, 'tronco')} e peguei ${contar(cena.totalMoedas, 'granulado')} no Granulando! Consegue me passar?`;
+    const texto = temNariz()
+        ? 'Tentei trapacear no Granulando e o guaxinim me pegou 🤡 Vem jogar limpo:'
+        : `Subi ${contar(cena.contador, 'tronco')} e peguei ${contar(cena.totalMoedas, 'granulado')} no Granulando! Consegue me passar?`;
     try {
         if (arquivo && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
             await navigator.share({ files: [arquivo], text: `${texto} ${enderecoJogo}` });
@@ -4314,6 +4499,10 @@ function texturaPose(cena, pose, loja = cena.loja) {
 function vestirGato(cena, gato, loja = cena.loja) {
     if (gato.acessorio) gato.acessorio.destroy();
     gato.acessorio = null;
+    if (gato.nariz) gato.nariz.destroy();
+    gato.nariz = null;
+    // O nariz de palhaco do trapaceiro vale para qualquer bicho (so no da partida, nao nas vitrines).
+    if (gato === cena.gato && temNariz()) criarNariz(cena, gato);
     // Pelagens e acessorios sao feitos para o gato; os outros bichos ficam como sao.
     if (loja.equipado.bichos !== 'gato') {
         gato.clearTint();
@@ -4331,6 +4520,232 @@ function vestirGato(cena, gato, loja = cena.loja) {
     posicionarAcessorio(gato);
 }
 
+// Confere a cada quadro o que um jogo honesto nunca faz: gravidade mexida, subida mais rapida que o
+// super pulo, placar alterado por fora ou altura demais em 10 s de relogio de verdade. Os limites tem
+// folga de sobra para o granulado dourado e a mola; o relogio do jogo nunca anda mais rapido que o real.
+function vigiarPartida(cena) {
+    if (cena.trapaca) return;
+    const velocidade = cena.velocidadeJogo;
+    const vigia = cena.vigia;
+    let motivo = null;
+    if (Math.abs(cena.physics.world.gravity.y - gravidadeBase * velocidade ** 2) > 1) motivo = 'gravidade';
+    else if (cena.caixa.body.velocity.y < -(650 * velocidade + 80)) motivo = 'velocidade';
+    else if (cena.totalMoedas !== vigia.moedas || cena.contador !== vigia.troncos) motivo = 'placar';
+    else {
+        const agora = performance.now();
+        const amostras = vigia.amostras;
+        if (!amostras.length || agora - amostras[amostras.length - 1][0] >= 250) amostras.push([agora, cena.alturaMax]);
+        while (agora - amostras[0][0] > 10000) amostras.shift();
+        if (cena.alturaMax - amostras[0][1] > 2600 * velocidade) motivo = 'altura';
+    }
+    if (motivo) detectarTrapaca(cena, motivo);
+}
+
+// Deixa o hack "funcionar" um pouquinho antes de o guaxinim aparecer. O recorde guardado ja vai a zero.
+function detectarTrapaca(cena, motivo) {
+    if (cena.trapaca || cena.morreu) return;
+    cena.trapaca = { motivo, espera: 2.2, pego: false };
+    cena.nariz = true;
+    marcarTrapaceiro();
+    cena.recorde = { granulados: 0, troncos: 0, altura: 0 };
+    salvarRecorde(cena.recorde);
+}
+
+// A peca: o guaxinim chega voando, ri da cara do trapaceiro, poe um nariz de palhaco nele, leva todos os
+// granulados e troncos do placar e vai embora. Depois o gato cai e a partida acaba sem recorde.
+function pregarPeca(cena) {
+    cena.trapaca.pego = true;
+    cena.pegandoTrapaceiro = true;
+    cena.physics.pause();
+    musica.parar(0.1);
+    if (cena.maoTutorial) fecharMaoTutorial(cena);
+    const caixa = cena.caixa;
+    const camera = cena.cameras.main;
+    // Fica do lado com mais espaco, olhando para o gato (a arte olha para a direita).
+    const lado = caixa.x > 180 ? -1 : 1;
+    const guaxinim = cena.guaxinim;
+    guaxinim.visual.setVisible(false);
+    if (guaxinim.dica) guaxinim.dica.setVisible(false);
+    const figura = cena.add.image(0, 0, 'guaxinim_rindo').setOrigin(0.5, 0.98);
+    figura.setScale(74 / figura.width);
+    const saco = cena.add.image(21, -24, 'fx_saco').setScale(0.58).setAngle(14);
+    const ladrao = cena.add.container(caixa.x + lado * 95, camera.scrollY - 90, [figura, saco]).setDepth(6);
+    ladrao.scaleX = -lado;
+    som.risada();
+    camera.shake(200, 0.006);
+    cena.tweens.add({ targets: ladrao, y: caixa.y + 34, duration: 650, ease: 'Back.easeOut' });
+    cena.tweens.add({ targets: figura, angle: { from: -6, to: 6 }, duration: 90, yoyo: true, repeat: -1 });
+    const passos = [
+        [700, () => {
+            balaoFala(cena, ladrao, 'HAHAHA! Achou que ia me passar voando?', 2300);
+            som.risada();
+        }],
+        [1500, () => colocarNarizPalhaco(cena)],
+        [2400, () => roubarPlacar(cena, ladrao)],
+        [4300, () => {
+            balaoFala(cena, ladrao, 'Valeu pelos granulados, trapaceiro!', 2000);
+            som.risada();
+        }],
+        [6300, () => {
+            som.risada();
+            cena.tweens.add({
+                targets: ladrao, y: cena.cameras.main.scrollY - 140, x: ladrao.x + lado * 40, duration: 700,
+                ease: 'Quad.easeIn', onComplete: () => ladrao.destroy()
+            });
+        }],
+        [6900, () => soltarTrapaceiro(cena)]
+    ];
+    passos.forEach(([espera, acao]) => cena.time.delayedCall(espera, acao));
+}
+
+// Balao de fala acima de quem fala, sem sair da tela.
+function balaoFala(cena, alvo, texto, duracao) {
+    const rotulo = cena.add.text(0, 0, texto, {
+        resolution: 4, fontFamily: 'Arial', fontSize: '14px', fontStyle: 'bold', color: '#2a1410',
+        align: 'center', wordWrap: { width: 190 }
+    }).setOrigin(0.5);
+    const largura = rotulo.width + 22;
+    const altura = rotulo.height + 16;
+    const x = Phaser.Math.Clamp(alvo.x, largura / 2 + 8, config.width - largura / 2 - 8);
+    const bico = Phaser.Math.Clamp(alvo.x - x, -largura / 2 + 16, largura / 2 - 16);
+    const fundo = cena.add.graphics();
+    fundo.fillStyle(0x2a1410, 1).fillRoundedRect(-largura / 2 - 2.5, -altura / 2 - 2.5, largura + 5, altura + 5, 12)
+        .fillTriangle(bico - 9, altura / 2, bico + 9, altura / 2, bico, altura / 2 + 14);
+    fundo.fillStyle(0xfff4d6, 1).fillRoundedRect(-largura / 2, -altura / 2, largura, altura, 10)
+        .fillTriangle(bico - 6, altura / 2 - 1, bico + 6, altura / 2 - 1, bico, altura / 2 + 9);
+    const balao = cena.add.container(x, alvo.y - 96 - altura / 2, [fundo, rotulo]).setDepth(9).setScale(0.3);
+    cena.tweens.add({ targets: balao, scale: 1, duration: 260, ease: 'Back.easeOut' });
+    cena.tweens.add({
+        targets: balao, alpha: 0, delay: duracao, duration: 250, onComplete: () => balao.destroy()
+    });
+}
+
+function colocarNarizPalhaco(cena) {
+    som.buzina();
+    const gato = cena.gato;
+    mostrarPopup(cena, gato.x, gato.y - 96, 'FON FON!', '#ff6b6b', 18);
+    if (gato.nariz) return;
+    criarNariz(cena, gato);
+    gato.nariz.escalaExtra = 0;
+    cena.tweens.add({ targets: gato.nariz, escalaExtra: 1, duration: 450, ease: 'Back.easeOut', easeParams: [3] });
+}
+
+// Os granulados saem da placa e voam para o pacote do guaxinim; troncos e granulados descem a zero.
+function roubarPlacar(cena, ladrao) {
+    const moedas = cena.totalMoedas;
+    const troncos = cena.contador;
+    cena.combo.seguidos = 0;
+    cena.combo.vale = 1;
+    atualizarCombo(cena, false);
+    cena.tweens.addCounter({
+        from: 1, to: 0, duration: 1700, ease: 'Sine.easeIn',
+        onUpdate: (contagem) => {
+            cena.totalMoedas = Math.round(moedas * contagem.getValue());
+            cena.contador = Math.round(troncos * contagem.getValue());
+            atualizarHud(cena);
+        }
+    });
+    const hud = cena.hud;
+    for (let i = 0; i < 14; i++) {
+        cena.time.delayedCall(i * 110, () => {
+            const camera = cena.cameras.main;
+            const inicioX = hud.granulados.x + hud.icone.x;
+            const inicioY = hud.granulados.y + camera.scrollY;
+            const alvoX = ladrao.x + ladrao.scaleX * 21;
+            const alvoY = ladrao.y - 24;
+            const grao = cena.add.image(inicioX, inicioY, 'moeda').setScale(22 / larguraGranulado).setDepth(7);
+            pulsarHud(cena, hud.granulados);
+            som.roubo(i);
+            cena.tweens.addCounter({
+                from: 0, to: 1, duration: 520, ease: 'Quad.easeIn',
+                onUpdate: (contagem) => {
+                    const t = contagem.getValue();
+                    grao.setPosition(Phaser.Math.Linear(inicioX, alvoX, t),
+                        Phaser.Math.Linear(inicioY, alvoY, t) - 60 * 4 * t * (1 - t)).setAngle(t * 400);
+                },
+                onComplete: () => grao.destroy()
+            });
+        });
+    }
+}
+
+// Fim da peca: o gato despenca atravessando os troncos e a derrota aparece sozinha.
+function soltarTrapaceiro(cena) {
+    if (cena.morreu) return;
+    cena.pegandoTrapaceiro = false;
+    const caixa = cena.caixa;
+    caixa.quedaSemVolta = true;
+    caixa.body.setVelocity(0, 0);
+    caixa.setTexture(texturaPose(cena, 'caindo')).setDisplaySize(78, 80);
+    cena.physics.resume();
+}
+
+// Partida limpa ate troncosPerdao: o guaxinim devolve o nariz.
+function devolverNariz(cena) {
+    cena.nariz = false;
+    salvarArmazenado(chavePerfil, {});
+    const nariz = cena.gato.nariz;
+    if (nariz) {
+        cena.gato.nariz = null;
+        cena.tweens.add({
+            targets: nariz, y: nariz.y - 90, angle: 540, alpha: 0, duration: 800, ease: 'Quad.easeOut',
+            onComplete: () => nariz.destroy()
+        });
+    }
+    mostrarFaixa(cena, 'NARIZ DEVOLVIDO!', 'Jogou limpo: o guaxinim te perdoou', '#ffd24a');
+    som.recorde();
+}
+
+// Nariz de palhaco preso na cara do gato, um pouco abaixo do meio dos olhos.
+function criarNariz(cena, gato) {
+    if (gato.nariz) return;
+    gato.nariz = cena.add.image(0, 0, 'ac_palhaco').setDepth(gato.depth + 0.2)
+        .setScrollFactor(gato.scrollFactorX, gato.scrollFactorY);
+    gato.nariz.escalaExtra = 1;
+    gato.once('destroy', () => gato.nariz && gato.nariz.destroy());
+    posicionarNariz(gato);
+}
+
+// Onde fica o nariz em cada pose: no gato, um pouco abaixo do meio dos olhos; nos outros bichos, no focinho.
+function narizDaPose(chave) {
+    if (narizBichos[chave]) return narizBichos[chave];
+    const cabeca = cabecaGato[chave];
+    if (!cabeca) return null;
+    const giro = Phaser.Math.DegToRad(cabeca.angulo);
+    const abaixo = cabeca.largura * 0.09;
+    return {
+        ponto: [cabeca.olhos[0] - abaixo * Math.sin(giro), cabeca.olhos[1] + abaixo * Math.cos(giro)],
+        largura: cabeca.largura
+    };
+}
+
+function posicionarNariz(gato) {
+    const nariz = gato.nariz;
+    if (!nariz) return;
+    const pose = narizDaPose(gato.texture.key);
+    if (!pose) {
+        nariz.setVisible(false);
+        return;
+    }
+    const posicao = pontoNaTela(gato, pose.ponto);
+    const k = gato.frame.width / 2048;
+    // A textura tem 90 px para uma bolinha de 27; o nariz fica com tamanhoNariz da largura da cabeca.
+    const escala = tamanhoNariz * pose.largura * k * Math.abs(gato.scaleX) / 81 * nariz.escalaExtra;
+    nariz.setPosition(posicao.x, posicao.y).setScale(escala).setAlpha(gato.alpha).setVisible(gato.visible);
+}
+
+// Converte um ponto da grade de 2048 da pose para a tela, seguindo espelhamento, achatamento e inclinacao.
+function pontoNaTela(gato, ponto) {
+    const k = gato.frame.width / 2048;
+    const localX = ((gato.flipX ? 2048 - ponto[0] : ponto[0]) - 2048 * gato.originX) * k * Math.abs(gato.scaleX);
+    const localY = (ponto[1] - 2048 * gato.originY) * k * gato.scaleY;
+    const giro = Phaser.Math.DegToRad(gato.angle);
+    return {
+        x: gato.x + localX * Math.cos(giro) - localY * Math.sin(giro),
+        y: gato.y + localX * Math.sin(giro) + localY * Math.cos(giro)
+    };
+}
+
 // Prende o acessorio na cabeca, seguindo pose, espelhamento, achatamento e inclinacao.
 function posicionarAcessorio(gato) {
     const acessorio = gato.acessorio;
@@ -4343,12 +4758,8 @@ function posicionarAcessorio(gato) {
     const espelhado = gato.flipX;
     // cabecaGato usa uma grade de 2048; k converte para os pixels da textura atual.
     const k = gato.frame.width / 2048;
-    const localX = ((espelhado ? 2048 - ponto[0] : ponto[0]) - 2048 * gato.originX) * k * Math.abs(gato.scaleX);
-    const localY = (ponto[1] - 2048 * gato.originY) * k * gato.scaleY;
-    const giro = Phaser.Math.DegToRad(gato.angle);
-    acessorio.setPosition(
-        gato.x + localX * Math.cos(giro) - localY * Math.sin(giro),
-        gato.y + localX * Math.sin(giro) + localY * Math.cos(giro));
+    const posicao = pontoNaTela(gato, ponto);
+    acessorio.setPosition(posicao.x, posicao.y);
     const escala = encaixe.largura * cabeca.largura * k * Math.abs(gato.scaleX) / acessorio.frame.width;
     acessorio.setScale(escala, escala * gato.scaleY / Math.abs(gato.scaleX))
         .setFlipX(espelhado).setAngle(gato.angle + (espelhado ? -cabeca.angulo : cabeca.angulo))
@@ -4378,6 +4789,7 @@ function sincronizarGato(cena, delta) {
     gato.setScale(78 / gato.frame.width * cena.deformacao.x,
         80 / gato.frame.height * cena.deformacao.y);
     posicionarAcessorio(gato);
+    posicionarNariz(gato);
     // A sombra no gramado encolhe e some conforme o gato sobe.
     if (cena.sombraGato) {
         const pertoDoChao = Phaser.Math.Clamp(1 - (alturaChao - gato.y) / 170, 0, 1);
@@ -4440,6 +4852,8 @@ function pular(caixa, plataforma) {
         }
         plataforma.contada = true;
         cena.contador += 1;
+        cena.vigia.troncos += 1;
+        if (cena.nariz && !cena.trapaca && cena.contador >= troncosPerdao) devolverNariz(cena);
         registrarMissao(cena, 'troncos', cena.contador);
         if (cena.bicadas === 0) registrarMissao(cena, 'semBicada', cena.contador);
         atualizarHud(cena);
@@ -4461,7 +4875,7 @@ function pular(caixa, plataforma) {
     cena.velocidadeJogo = velocidade;
     musica.definirVelocidade(velocidade);
     // Gravidade proporcional ao quadrado preserva a altura e o alcance do salto.
-    cena.physics.world.gravity.y = config.physics.arcade.gravity.y * velocidade ** 2;
+    cena.physics.world.gravity.y = gravidadeBase * velocidade ** 2;
     // A pose de contato acompanha o ritmo do jogo.
     caixa.setTexture(texturaPose(cena, 'quasePulando')).setDisplaySize(78, 80);
     caixa.poseContatoAte = cena.time.now + 120 / velocidade;
@@ -4478,11 +4892,7 @@ function pular(caixa, plataforma) {
     if (plataforma.fragil) {
         quebrarTronco(cena, plataforma);
     } else if (plataforma.movimento && plataforma.movimento.tipo === 'balanco') {
-        // O balanco afunda um pouco mais com o peso e ganha embalo.
-        cena.tweens.add({
-            targets: plataforma.movimento, yBase: plataforma.movimento.yBase + 9, duration: 110,
-            yoyo: true, ease: 'Quad.easeOut'
-        });
+        reagirBalanco(cena, plataforma);
     } else if (plataforma.numero > 0) {
         // O tronco cede um pouco com o peso; o corpo de colisao fica parado.
         cena.tweens.add({
@@ -4493,7 +4903,7 @@ function pular(caixa, plataforma) {
 }
 
 function update(time, delta) {
-    if (!this.iniciado || this.morreu || this.pausado) return;
+    if (!this.iniciado || this.morreu || this.pausado || this.pegandoTrapaceiro) return;
     atualizarPlataformasMoveis(this, delta);
     atualizarGuaxinim(this, delta);
     atualizarPassaros(this, delta);
@@ -4585,6 +4995,11 @@ function update(time, delta) {
     atualizarCenario(this, delta);
     atualizarCeu(this, delta);
     limparPlataformasForaDaTela(this);
+    vigiarPartida(this);
+    if (this.trapaca && !this.trapaca.pego) {
+        this.trapaca.espera -= delta / 1000;
+        if (this.trapaca.espera <= 0) pregarPeca(this);
+    }
 }
 
 function limparPlataformasForaDaTela(cena) {
@@ -4619,3 +5034,4 @@ function temPlataformaAlcancavel(cena) {
         return distanciaX <= 200 * cena.velocidadeJogo * tempo + alcanceMovel + 2;
     });
 }
+})();
