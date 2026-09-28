@@ -132,7 +132,9 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 ## Anti-trapaca (pedido do usuario)
 
 Um programador achou o atalho de teste e subiu voando para se gabar do recorde. Nao da para impedir 100% (o
-jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma peca em quem trapaceia.
+jogo roda no navegador: mesmo com o codigo privado e o site embaralhado, o mesmo programador quebrou em menos
+de 30 min), entao o jogo dificulta e prega uma peca em quem trapaceia. **Decisao do usuario: parar por aqui.**
+Nada de novas travas no navegador; servidor conferindo as partidas so se um dia houver ranking online ou premio.
 - **Codigo embrulhado:** todo o `GameV2.js` fica dentro de `(() => { ... })();`, para `game` e as funcoes nao
   aparecerem no console. Os testes e a previa tiram essa embalagem para enxergar o jogo por dentro.
 - **Shift + B virou isca:** o super pulo ainda funciona por um instante e entrega o trapaceiro. Nao use para
@@ -157,8 +159,8 @@ jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma
   Assinatura que nao bate (editado a mao) apaga o dado e poe o nariz (`pegarAdulterado`). Dado sem assinatura vem
   de versao antiga ou foi escrito a mao: o recorde passa pelo lacre, o cofrinho so ate `limiteCofrinhoAntigo`
   (saldo + preco do comprado, `valorLoja`; acima disso e nariz) e as missoes do dia recomecam. Tudo e conferido
-  ao abrir o jogo, antes do menu. O usuario sabe que isso so barra a edicao casual: quem copia a assinatura do
-  codigo publico passa; protecao de verdade (ranking, premio) so com um servidor conferindo as partidas.
+  ao abrir o jogo, antes do menu. O usuario sabe que isso so barra a edicao casual: quem estuda o codigo
+  embaralhado passa; protecao de verdade (ranking, premio) so com um servidor conferindo as partidas.
 - **A peca** (`detectarTrapaca` e, 2,2 s depois, `pregarPeca`): o guaxinim chega voando rindo ("Achou que ia me
   passar voando?"), poe um nariz de palhaco no gato (buzina "FON FON"), leva os granulados e os troncos do placar
   para o pacote ("Valeu pelos granulados, trapaceiro!") e vai embora; o gato cai. Derrota com o carimbo
