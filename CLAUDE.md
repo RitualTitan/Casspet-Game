@@ -142,6 +142,14 @@ jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma
   ou mais de `2600 * velocidade` de altura em 10 s de relogio real. **Qualquer coisa nova que mude placar,
   impulso, gravidade ou teleporte o gato precisa atualizar o vigia ou caber nesses limites**, senao um jogador
   honesto leva a peca.
+- **Placar limitado pelo tempo real** (`placarImpossivel`, `vigia.tempo`): o hacker burlou a primeira versao mudando
+  o valor de cada granulado (placar e espelho subiam juntos: 8,6e+118 granulados com 0 troncos). Agora, a cada
+  quadro e na derrota, os troncos nao passam de `troncosPorSegundo` por segundo real de partida (sem pausa), os
+  granulados de `granuladosPorTronco` por tronco mais `granuladosPorSegundo` por segundo, e a altura de 360 por
+  tronco; acima disso e trapaca. O recorde lacrado tambem precisa ser possivel (`recordeImpossivel`, nao so os
+  antigos) e o cofrinho, mesmo assinado, nao passa de `limiteCofrinho`. Qualquer recurso novo que renda mais
+  troncos ou granulados por segundo precisa caber nesses limites. Nenhuma checagem no navegador e definitiva:
+  so um ranking com servidor seria a prova de trapaca.
 - **Recorde lacrado** (`salvarRecorde`, `selarRecorde`): lacre que nao bate (editado a mao) ou recorde antigo
   impossivel (`recordeImpossivel`: altura ou granulados muito acima do que os troncos permitem) contam como trapaca.
 - **Dados assinados** (`chavesAssinadas`: recorde, cofrinho/loja e missoes): salvos como `{ dados, assinatura }`
