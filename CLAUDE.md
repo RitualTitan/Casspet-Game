@@ -156,6 +156,11 @@ continua em pontinhos (o usuario nao gostou da tirinha de granulados).
 - Visual de madeira: `texturaMadeira` monta tabuas com a madeira lisa das placas da arte; cartoes entram em
   sequencia, a compra solta granulados e o item em uso respira.
 - Os granulados de cada partida vao para o cofrinho (`chaveLoja`, salvo so no aparelho, como o recorde).
+- **Dados assinados contra trapaca:** recorde, cofrinho/loja e missoes sao salvos com assinatura (`assinar`,
+  hash cyrb53 com `segredoAssinatura`); se alguem editar pelo navegador, a assinatura nao bate e o jogo ignora.
+  Dados antigos sem assinatura sao regravados assinados uma unica vez (`assinarDadosAntigos`, marca
+  `granulando.assinado`), para ninguem perder o cofrinho. Salve sempre por `salvarArmazenado`/`lerArmazenado`.
+  O super pulo Shift + B (`configurarComandoSecreto`) so funciona em teste (previas e servidor local).
 - `itensLoja`: **bichos** (o foco, decisao do usuario: animais que tambem usam o granulado - coelho, hamster,
   passaro, porquinho-da-india, iguana), **pelagens** (tint sobre o gato; so escurece ou muda o tom) e
   **acessorios** desenhados no codigo (`ac_*`), presos na cabeca por `cabecaGato` em cada uma das 4 poses.

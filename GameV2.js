@@ -249,11 +249,41 @@ function medirAlturaTela() {
     return Math.round(Phaser.Math.Clamp(360 * altura / largura, 640, 860));
 }
 
+// Recorde, cofrinho e missoes sao salvos com uma assinatura (hash dos dados com uma chave do
+// jogo). Quem editar esses valores pelo navegador quebra a assinatura, e o jogo ignora o que foi
+// salvo. Nao segura quem estudar o codigo, mas barra a edicao casual.
+const chavesAssinadas = [chaveRecorde, chaveLoja, chaveMissoes];
+// Marca que este aparelho ja salva assinado; antes dela, os dados antigos sao aceitos uma vez.
+const chaveAssinado = 'granulando.assinado';
+const segredoAssinatura = 'casspet-granulando-cofrinho';
+
+// Hash de 53 bits (cyrb53), rapido e sem depender de nada do navegador.
+function assinar(chave, texto) {
+    const entrada = segredoAssinatura + '|' + chave + '|' + texto;
+    let h1 = 0xdeadbeef ^ entrada.length, h2 = 0x41c6ce57 ^ entrada.length;
+    for (let i = 0; i < entrada.length; i++) {
+        const c = entrada.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 2654435761);
+        h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+const estaAssinado = (salvo) => salvo !== null && typeof salvo === 'object' &&
+    'assinatura' in salvo && 'dados' in salvo;
+
 // O armazenamento pode falhar em aba anonima; o jogo segue sem salvar.
 function lerArmazenado(chave, padrao) {
     try {
         const valor = localStorage.getItem(chave);
-        return valor === null ? padrao : JSON.parse(valor);
+        if (valor === null) return padrao;
+        const salvo = JSON.parse(valor);
+        if (!chavesAssinadas.includes(chave)) return salvo;
+        const confere = estaAssinado(salvo) &&
+            salvo.assinatura === assinar(chave, JSON.stringify(salvo.dados));
+        return confere ? salvo.dados : padrao;
     } catch (erro) {
         return padrao;
     }
@@ -261,11 +291,31 @@ function lerArmazenado(chave, padrao) {
 
 function salvarArmazenado(chave, valor) {
     try {
-        localStorage.setItem(chave, JSON.stringify(valor));
+        const texto = chavesAssinadas.includes(chave)
+            ? JSON.stringify({ dados: valor, assinatura: assinar(chave, JSON.stringify(valor)) })
+            : JSON.stringify(valor);
+        localStorage.setItem(chave, texto);
     } catch (erro) {
         // Sem armazenamento disponivel.
     }
 }
+
+// Quem ja jogava antes da assinatura nao perde nada: na primeira vez, os dados antigos sao
+// regravados assinados. Depois disso, dado sem assinatura e ignorado.
+(function assinarDadosAntigos() {
+    try {
+        if (localStorage.getItem(chaveAssinado) !== null) return;
+        for (const chave of chavesAssinadas) {
+            const valor = localStorage.getItem(chave);
+            if (valor === null) continue;
+            const salvo = JSON.parse(valor);
+            if (!estaAssinado(salvo)) salvarArmazenado(chave, salvo);
+        }
+        localStorage.setItem(chaveAssinado, '1');
+    } catch (erro) {
+        // Sem armazenamento disponivel.
+    }
+})();
 
 function diaDeHoje() {
     const hoje = new Date();
@@ -3156,7 +3206,9 @@ function atualizarCombo(cena, pulsar) {
 }
 
 function configurarComandoSecreto(cena) {
-    if (!cena.sys.game.device.os.desktop) return;
+    // So em teste (previas e servidor local): no jogo publicado seria uma trapaca facil.
+    const emTeste = previaCenario || ['localhost', '127.0.0.1'].includes(location.hostname);
+    if (!emTeste || !cena.sys.game.device.os.desktop) return;
     // Atalho oculto de PC: Shift + B durante a partida.
     const superImpulso = (evento) => {
         if (!evento.shiftKey || evento.ctrlKey || evento.altKey || evento.metaKey || evento.repeat) return;
