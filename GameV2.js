@@ -268,12 +268,13 @@ function medirAlturaTela() {
 }
 
 // Recorde, cofrinho e missoes sao salvos com uma assinatura (hash dos dados com uma chave do
-// jogo). Quem editar esses valores pelo navegador quebra a assinatura, e o jogo ignora o que foi
-// salvo. Nao segura quem estudar o codigo, mas barra a edicao casual.
+// jogo). Quem editar esses valores pelo navegador quebra a assinatura: o dado e jogado fora e o
+// trapaceiro ganha o nariz de palhaco. Nao segura quem copiar a assinatura do codigo publico.
 const chavesAssinadas = [chaveRecorde, chaveLoja, chaveMissoes];
-// Marca que este aparelho ja salva assinado; antes dela, os dados antigos sao aceitos uma vez.
-const chaveAssinado = 'granulando.assinado';
 const segredoAssinatura = 'casspet-granulando-cofrinho';
+// Cofrinho sem assinatura (salvo por uma versao antiga) so e aceito ate este valor, somando o
+// saldo e o preco do que ja foi comprado. A loja e nova; acima disso e cofrinho escrito a mao.
+const limiteCofrinhoAntigo = 10000;
 
 // Hash de 53 bits (cyrb53), rapido e sem depender de nada do navegador.
 function assinar(chave, texto) {
@@ -299,12 +300,42 @@ function lerArmazenado(chave, padrao) {
         if (valor === null) return padrao;
         const salvo = JSON.parse(valor);
         if (!chavesAssinadas.includes(chave)) return salvo;
-        const confere = estaAssinado(salvo) &&
-            salvo.assinatura === assinar(chave, JSON.stringify(salvo.dados));
-        return confere ? salvo.dados : padrao;
+        if (estaAssinado(salvo)) {
+            if (salvo.assinatura === assinar(chave, JSON.stringify(salvo.dados))) return salvo.dados;
+            pegarAdulterado(chave);
+            return padrao;
+        }
+        // Sem assinatura: veio de uma versao antiga do jogo ou foi escrito a mao. As missoes do dia
+        // recomecam; o recorde passa pelo lacre de lerRecorde; o cofrinho, se for possivel.
+        if (chave === chaveMissoes) {
+            localStorage.removeItem(chave);
+            return padrao;
+        }
+        if (chave === chaveLoja && valorLoja(salvo) > limiteCofrinhoAntigo) {
+            pegarAdulterado(chave);
+            return padrao;
+        }
+        salvarArmazenado(chave, salvo);
+        return salvo;
     } catch (erro) {
         return padrao;
     }
+}
+
+// Dado mexido a mao: some, e quem mexeu fica com o nariz de palhaco.
+function pegarAdulterado(chave) {
+    localStorage.removeItem(chave);
+    marcarTrapaceiro();
+}
+
+// Saldo mais o preco de tudo que ja foi comprado.
+function valorLoja(salvo) {
+    const comprados = salvo && Array.isArray(salvo.comprados) ? salvo.comprados : [];
+    let valor = Math.max(0, Number(salvo && salvo.saldo) || 0);
+    for (const grupo of Object.values(itensLoja)) {
+        for (const item of grupo) if (comprados.includes(item.id)) valor += item.preco;
+    }
+    return valor;
 }
 
 function salvarArmazenado(chave, valor) {
@@ -318,22 +349,9 @@ function salvarArmazenado(chave, valor) {
     }
 }
 
-// Quem ja jogava antes da assinatura nao perde nada: na primeira vez, os dados antigos sao
-// regravados assinados. Depois disso, dado sem assinatura e ignorado.
-(function assinarDadosAntigos() {
-    try {
-        if (localStorage.getItem(chaveAssinado) !== null) return;
-        for (const chave of chavesAssinadas) {
-            const valor = localStorage.getItem(chave);
-            if (valor === null) continue;
-            const salvo = JSON.parse(valor);
-            if (!estaAssinado(salvo)) salvarArmazenado(chave, salvo);
-        }
-        localStorage.setItem(chaveAssinado, '1');
-    } catch (erro) {
-        // Sem armazenamento disponivel.
-    }
-})();
+// Confere tudo ao abrir o jogo, antes do menu: o que veio de versoes antigas passa a ir assinado
+// (quem ja jogava nao perde nada) e o que foi mexido ja poe o nariz de palhaco na pintura do menu.
+for (const chave of chavesAssinadas) lerArmazenado(chave, null);
 
 function diaDeHoje() {
     const hoje = new Date();
@@ -4524,7 +4542,8 @@ function vestirGato(cena, gato, loja = cena.loja) {
 // super pulo, placar alterado por fora ou altura demais em 10 s de relogio de verdade. Os limites tem
 // folga de sobra para o granulado dourado e a mola; o relogio do jogo nunca anda mais rapido que o real.
 function vigiarPartida(cena) {
-    if (cena.trapaca) return;
+    // Na previa do cenario o botao SUBIR voa de proposito.
+    if (cena.trapaca || previaCenario) return;
     const velocidade = cena.velocidadeJogo;
     const vigia = cena.vigia;
     let motivo = null;

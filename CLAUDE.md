@@ -140,6 +140,14 @@ jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma
   honesto leva a peca.
 - **Recorde lacrado** (`salvarRecorde`, `selarRecorde`): lacre que nao bate (editado a mao) ou recorde antigo
   impossivel (`recordeImpossivel`: altura ou granulados muito acima do que os troncos permitem) contam como trapaca.
+- **Dados assinados** (`chavesAssinadas`: recorde, cofrinho/loja e missoes): salvos como `{ dados, assinatura }`
+  (`assinar`, hash cyrb53 com `segredoAssinatura`). Salve e leia sempre por `salvarArmazenado`/`lerArmazenado`.
+  Assinatura que nao bate (editado a mao) apaga o dado e poe o nariz (`pegarAdulterado`). Dado sem assinatura vem
+  de versao antiga ou foi escrito a mao: o recorde passa pelo lacre, o cofrinho so ate `limiteCofrinhoAntigo`
+  (saldo + preco do comprado, `valorLoja`; acima disso e nariz) e as missoes do dia recomecam. Tudo e conferido
+  ao abrir o jogo, antes do menu. O usuario sabe que isso so barra a edicao casual: quem copia a assinatura do
+  codigo publico passa; protecao de verdade (ranking, premio) so com um servidor conferindo as partidas.
+- Na previa do cenario (`previaCenario`) o vigia fica desligado, porque o botao SUBIR voa de proposito.
 - **A peca** (`detectarTrapaca` e, 2,2 s depois, `pregarPeca`): o guaxinim chega voando rindo ("Achou que ia me
   passar voando?"), poe um nariz de palhaco no gato (buzina "FON FON"), leva os granulados e os troncos do placar
   para o pacote ("Valeu pelos granulados, trapaceiro!") e vai embora; o gato cai. Derrota com o carimbo
@@ -183,11 +191,7 @@ jogo roda no navegador e o codigo e publico), entao o jogo dificulta e prega uma
 - Visual de madeira: `texturaMadeira` monta tabuas com a madeira lisa das placas da arte; cartoes entram em
   sequencia, a compra solta granulados e o item em uso respira.
 - Os granulados de cada partida vao para o cofrinho (`chaveLoja`, salvo so no aparelho, como o recorde).
-- **Dados assinados contra trapaca:** recorde, cofrinho/loja e missoes sao salvos com assinatura (`assinar`,
-  hash cyrb53 com `segredoAssinatura`); se alguem editar pelo navegador, a assinatura nao bate e o jogo ignora.
-  Dados antigos sem assinatura sao regravados assinados uma unica vez (`assinarDadosAntigos`, marca
-  `granulando.assinado`), para ninguem perder o cofrinho. Salve sempre por `salvarArmazenado`/`lerArmazenado`.
-  O super pulo Shift + B (`configurarComandoSecreto`) so funciona em teste (previas e servidor local).
+- O cofrinho, o recorde e as missoes vao assinados (ver **Dados assinados** em Anti-trapaca).
 - `itensLoja`: **bichos** (o foco, decisao do usuario: animais que tambem usam o granulado - coelho, hamster,
   passaro, porquinho-da-india, iguana), **pelagens** (tint sobre o gato; so escurece ou muda o tom) e
   **acessorios** desenhados no codigo (`ac_*`), presos na cabeca por `cabecaGato` em cada uma das 4 poses.
