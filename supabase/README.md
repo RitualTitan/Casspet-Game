@@ -6,7 +6,7 @@ O jogo so usa o ranking quando `supabaseEndereco` e `supabaseChavePublica` estao
 
 1. Crie um projeto no Supabase (plano gratis; regiao Sao Paulo).
 2. Em Authentication > Sign In / Providers, ligue **Anonymous sign-ins**.
-3. Rode `migrations/20260929000000_ranking.sql` no SQL Editor (ou pela API de gerenciamento).
+3. Rode as `migrations/*.sql` em ordem no SQL Editor (ou pela API de gerenciamento).
 4. Publique a funcao `functions/partida` (index.ts e regras.ts) com o nome `partida` e sem verificacao de JWT
    (`supabase functions deploy partida --no-verify-jwt`): a propria funcao confere o login com `auth.getUser`, e a
    chave publicavel nao e um JWT.
@@ -22,7 +22,16 @@ e por segundo, altura por tronco). Teste com:
     node --experimental-strip-types supabase/functions/partida/regras.test.ts
 
 O apelido aceita so alfabeto latino (com acento), numeros, espaco, ponto, `-` e `_`, com pelo menos uma letra:
-misturar alfabetos (o "a" cirilico imita o latino) e recusado, para ninguem copiar o apelido de outro.
+misturar alfabetos (o "a" cirilico imita o latino) e recusado. E unico (coluna `apelido_chave`): ninguem copia o
+apelido de outro trocando maiuscula ou acento.
+
+## Pontos de controle (marcos)
+
+`migrations/20260929140000_apelido_unico_e_marcos.sql` liga a unicidade do apelido e as colunas de marco em
+`partidas`. Durante a partida o jogo manda `{ acao: 'marco', id, troncos, granulados, altura }` a cada 10 s; o
+servidor confere cada trecho pelo relogio dele (`conferirMarco`) e, no `terminar`, exige que a partida tenha sido
+acompanhada sem buraco maior que `limites.intervaloMaximo`. Placar possivel mas sem marcos conta como offline (o
+jogador ficou sem internet), nao como recusada.
 
 ## Limpeza automatica
 

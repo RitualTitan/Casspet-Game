@@ -8,10 +8,14 @@ export const limites = {
     alturaPorTronco: 360,
     // Uma partida aberta por mais de uma hora nao entra (quem deixa aberto para "ganhar tempo").
     duracaoMaxima: 3600,
-    partidasPorHora: 60
+    partidasPorHora: 60,
+    // Pontos de controle: o jogo manda um marco a cada ~10 s. Se ficar mais de intervaloMaximo sem marco
+    // (inclusive do comeco ao 1o e do ultimo ao fim), a partida nao foi acompanhada e nao entra no ranking.
+    intervaloMaximo: 40
 };
 
 export type Placar = { troncos: unknown; granulados: unknown; altura: unknown };
+export type Marco = { troncos: number; granulados: number; altura: number };
 
 const inteiroValido = (valor: unknown): valor is number =>
     typeof valor === 'number' && Number.isInteger(valor) && valor >= 0 && valor <= 1_000_000;
@@ -30,6 +34,38 @@ export function conferirPartida(placar: Placar, segundos: number): { aceita: boo
     return { aceita: true, motivo: '' };
 }
 
+// Confere um trecho da partida (entre dois marcos, ou do ultimo marco ate o fim): o progresso so cresce e
+// cabe nos mesmos limites por segundo, agora contando so o tempo do trecho. Assim nao adianta ficar parado e
+// dar um salto: cada pedaco e conferido pelo relogio do servidor. A folga por trecho absorve o vaivem da rede.
+export function conferirMarco(anterior: Marco, atual: Placar, dt: number): { ok: boolean; motivo: string } {
+    const { troncos, granulados, altura } = atual;
+    if (!inteiroValido(troncos) || !inteiroValido(granulados) || !inteiroValido(altura)) {
+        return { ok: false, motivo: 'numeros invalidos' };
+    }
+    if (!(dt >= 0)) return { ok: false, motivo: 'tempo invalido' };
+    const dTroncos = troncos - anterior.troncos;
+    const dGranulados = granulados - anterior.granulados;
+    const dAltura = altura - anterior.altura;
+    // Troncos e altura so sobem. Granulados podem cair (a bicada do passaro derruba granulados do gato),
+    // entao para eles conferimos so quanto pode ter subido, nunca a queda.
+    if (dTroncos < 0 || dAltura < 0) return { ok: false, motivo: 'placar diminuiu' };
+    if (dTroncos > dt * limites.troncosPorSegundo + 3) return { ok: false, motivo: 'troncos demais para o tempo' };
+    if (dGranulados > dTroncos * limites.granuladosPorTronco + dt * limites.granuladosPorSegundo + 15) {
+        return { ok: false, motivo: 'granulados demais' };
+    }
+    if (dAltura > dTroncos * limites.alturaPorTronco + 1500) return { ok: false, motivo: 'altura demais' };
+    return { ok: true, motivo: '' };
+}
+
+// Chave para comparar apelidos: minusculas e sem acento. "Gato", "gato" e "gáto" contam como um so,
+// para ninguem copiar o apelido de outro trocando maiuscula ou acento.
+function normalizar(texto: string): string {
+    return texto.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+}
+export function chaveApelido(apelido: string): string {
+    return normalizar(apelido);
+}
+
 // Palavras que nao podem aparecer no apelido (o time pode completar a lista).
 const proibidas = ['porra', 'caralho', 'merda', 'puta', 'buceta', 'cu ', 'viado', 'fdp', 'pqp', 'foda', 'cacete', 'bosta'];
 
@@ -41,7 +77,7 @@ export function conferirApelido(texto: unknown): { ok: boolean; apelido: string;
     if (!/^[\p{Script=Latin}0-9 _.-]+$/u.test(apelido)) return { ok: false, apelido, motivo: 'Só letras (sem misturar alfabetos), números, espaço, ponto, - e _.' };
     // Pelo menos uma letra, para o apelido nao se confundir com o numero do lugar no ranking.
     if (!/\p{Script=Latin}/u.test(apelido)) return { ok: false, apelido, motivo: 'Use pelo menos uma letra.' };
-    const comparar = ' ' + apelido.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + ' ';
+    const comparar = ' ' + normalizar(apelido) + ' ';
     if (proibidas.some((palavra) => comparar.includes(palavra))) return { ok: false, apelido, motivo: 'Escolha outro apelido.' };
     return { ok: true, apelido, motivo: '' };
 }
