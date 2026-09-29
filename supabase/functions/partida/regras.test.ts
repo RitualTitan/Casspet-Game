@@ -30,6 +30,10 @@ esperar('apelido curto', conferirApelido('ab').ok, false);
 esperar('apelido com simbolo', conferirApelido('<script>').ok, false);
 esperar('apelido feio', conferirApelido('PoRRa123').ok, false);
 esperar('apelido com acento', conferirApelido('João_99').ok, true);
+esperar('apelido cirilico sosia', conferirApelido('аdmin').ok, false); // "а" cirilico, imita "admin"
+esperar('apelido grego sosia', conferirApelido('Gатo').ok, false); // mistura latino e cirilico
+esperar('apelido so numeros', conferirApelido('1234').ok, false);
+esperar('apelido com numero e letra', conferirApelido('Gato7').ok, true);
 if (falhas) {
     console.log(falhas + ' teste(s) falharam');
     process.exit(1);

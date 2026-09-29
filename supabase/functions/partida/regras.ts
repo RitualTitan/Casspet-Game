@@ -36,7 +36,11 @@ const proibidas = ['porra', 'caralho', 'merda', 'puta', 'buceta', 'cu ', 'viado'
 export function conferirApelido(texto: unknown): { ok: boolean; apelido: string; motivo: string } {
     const apelido = String(texto ?? '').replace(/\s+/g, ' ').trim();
     if (apelido.length < 3 || apelido.length > 16) return { ok: false, apelido, motivo: 'Use de 3 a 16 letras.' };
-    if (!/^[\p{L}\p{N} _.-]+$/u.test(apelido)) return { ok: false, apelido, motivo: 'Só letras, números, espaço, ponto, - e _.' };
+    // So letras latinas (com acento), numeros, espaco, ponto, - e _. Nada de misturar alfabetos: o "a"
+    // cirilico e o "a" latino sao parecidos e deixariam alguem imitar o apelido de outro no ranking.
+    if (!/^[\p{Script=Latin}0-9 _.-]+$/u.test(apelido)) return { ok: false, apelido, motivo: 'Só letras (sem misturar alfabetos), números, espaço, ponto, - e _.' };
+    // Pelo menos uma letra, para o apelido nao se confundir com o numero do lugar no ranking.
+    if (!/\p{Script=Latin}/u.test(apelido)) return { ok: false, apelido, motivo: 'Use pelo menos uma letra.' };
     const comparar = ' ' + apelido.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + ' ';
     if (proibidas.some((palavra) => comparar.includes(palavra))) return { ok: false, apelido, motivo: 'Escolha outro apelido.' };
     return { ok: true, apelido, motivo: '' };
