@@ -185,23 +185,34 @@ Pedido do usuario depois que o hacker burlou tudo no navegador: o unico placar q
 - **Servidor** (pasta `supabase/`, nao vai para o site): `migrations/*_ranking.sql` cria `jogadores`, `partidas` e a
   vista `ranking` (melhor partida aceita de cada jogador, por troncos). O jogo nao grava nada direto (sem politicas
   de gravacao); so le a vista e o proprio apelido. A funcao `functions/partida` (Deno) e a unica que grava:
-  `comecar` anota a hora no relogio do servidor, `terminar` confere o placar pelo tempo com as regras de
-  `regras.ts` (os mesmos limites do vigia: mude os dois juntos) e `apelido` troca o apelido (3 a 16 letras,
-  lista de palavras proibidas). Login anonimo, sem e-mail; quem joga ganha um apelido provisorio "Gato 1234".
+  `comecar` anota a hora no relogio do servidor, `marco` recebe os pontos de controle no meio da partida,
+  `terminar` confere o placar pelo tempo com as regras de `regras.ts` (os mesmos limites do vigia: mude os dois
+  juntos) e `apelido` troca o apelido. Login anonimo, sem e-mail; quem joga ganha um apelido provisorio "Gato 1234".
+- **Pontos de controle (marcos):** o jogo manda um marco a cada 10 s de relogio real (`online.marcar`, um
+  `setInterval` — nao o relogio do jogo, que desacelera num celular fraco). O servidor confere cada trecho
+  (`conferirMarco`) pelo relogio dele: troncos e altura so sobem (granulados podem cair na bicada do passaro) e
+  cabem nos limites por segundo. No `terminar`, o placar final tem de caber no ultimo trecho e a partida precisa
+  ter sido acompanhada sem buraco maior que `intervaloMaximo` (40 s); senao conta como offline (fora do ranking),
+  nao como trapaca. Assim nao adianta esperar e despejar um numero: o placar alto exige um fluxo inteiro de
+  progresso no tempo real. As colunas `ultimo_marco`, `marcos_count` e `maior_intervalo` (em `partidas`) guardam o
+  estado. Custo: ~1 chamada por 10 s de cada partida ativa; no plano gratis (500 mil chamadas/mes) da folga para
+  milhares de partidas, mas se bombar precisa dimensionar.
 - **No jogo** (`online`, `mostrarRanking`, `pedirApelido`): botao redondo "Ranking" embaixo das Missoes, painel
   com os 10 melhores e o lugar do jogador, caixa de texto (HTML por cima do jogo, com o teclado do jogo desligado)
   para o apelido, e na derrota "Seu lugar no ranking: Nº". Sem internet, a partida so fica fora do ranking.
 - **Apelido:** 3 a 16 letras, so alfabeto latino (com acento), numeros, espaco, ponto, `-` e `_`, e pelo menos uma
-  letra. Nada de misturar alfabetos (o "a" cirilico imita o latino), para ninguem copiar o apelido de outro.
+  letra. Nada de misturar alfabetos (o "a" cirilico imita o latino). E **unico**: a chave normalizada
+  (`apelido_chave` = minuscula, sem acento, trava de unicidade) impede copiar o apelido de outro trocando
+  maiuscula ou acento; o segundo a tentar recebe "esse apelido ja esta em uso".
 - **Limpeza automatica** (`migrations/*_limpeza.sql`, pg_cron, todo dia 04:17 UTC): apaga contas anonimas sem
   partida aceita paradas ha mais de 7 dias (a cascata leva as partidas) e as partidas 'aberta'/'recusada' antigas.
   Assim o banco nao cresce sem limite (cada partida cria uma conta anonima) e o abuso tem menos efeito. Quem esta
   no ranking (tem partida aceita) nunca e apagado.
 - **Testes:** `node --experimental-strip-types supabase/functions/partida/regras.test.ts`. O time pode apagar uma
   partida suspeita no painel do Supabase mudando `situacao` para `recusada`.
-- **O que sobra:** o servidor limita o placar pelo tempo real, mas um atacante paciente ainda pode mandar um placar
-  alto e plausivel sem jogar (comecar, esperar, terminar). Fechar isso de vez precisa de pontos de controle no meio
-  da partida (o jogo manda marcos, o servidor confere) — decisao do usuario ainda pendente.
+- **O que ainda sobra:** com os marcos, um placar alto exige um fluxo inteiro de progresso no tempo real, conferido
+  trecho a trecho. Nao fica impossivel (um bot pode imitar esse fluxo, gastando o mesmo tempo real e um script
+  proprio), mas o custo da trapaca sobe muito. Nenhuma checagem no navegador e definitiva.
 
 ## Menus
 

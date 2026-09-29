@@ -414,6 +414,14 @@ const online = {
             ? this.chamar({ acao: 'comecar' }).then((resposta) => resposta && resposta.id).catch(() => null)
             : null;
     },
+    // Ponto de controle no meio da partida (a cada ~10 s): prova que o jogador subiu de verdade, no tempo.
+    // Falha de rede so faz o marco nao chegar; a partida segue e, se faltarem marcos, fica fora do ranking.
+    marcar(placar) {
+        if (!this.partida) return;
+        Promise.resolve(this.partida).then((id) => {
+            if (id) return this.chamar({ acao: 'marco', id, ...placar });
+        }).catch(() => {});
+    },
     async terminar(placar) {
         if (!this.partida) return { situacao: 'desligado' };
         const id = await this.partida;
@@ -1412,6 +1420,15 @@ function create(data = {}) {
             this.physics.resume();
             provocarGuaxinim(this);
             if (!this.dicasVistas.includes('mover')) mostrarMaoTutorial(this);
+            // Marcos a cada 10 s de relogio real (nao o do jogo, que desacelera num celular fraco e deixaria
+            // a partida honesta sem marcos). Param na morte e no fim da cena (limparEventos).
+            if (rankingLigado) {
+                const cena = this;
+                cena.marcoInterval = setInterval(() => online.marcar({
+                    troncos: cena.contador, granulados: cena.totalMoedas,
+                    altura: Math.round(Math.max(0, cena.alturaMax))
+                }), 10000);
+            }
         });
     };
     const comecar = () => {
@@ -2948,6 +2965,8 @@ function mostrarMorte(cena) {
     // Ultima conferencia antes de salvar: placar que nao cabe no tempo de partida nao vira recorde.
     if (!cena.trapaca && cena.vigia && placarImpossivel(cena)) detectarTrapaca(cena, 'tempo');
     cena.morreu = true;
+    // Para de mandar marcos: o placar final vai no 'terminar'.
+    if (cena.marcoInterval) { clearInterval(cena.marcoInterval); cena.marcoInterval = null; }
     cena.physics.pause();
     musica.parar(0.04);
     som.morte();
@@ -3109,6 +3128,8 @@ function mostrarMorte(cena) {
     function limparEventos() {
         cena.input.keyboard.off('keydown-SPACE', teclaReiniciar);
         cena.input.keyboard.off('keydown-ENTER', teclaReiniciar);
+        // Garante que os marcos param se a cena sair sem passar pela morte (reiniciar direto).
+        if (cena.marcoInterval) { clearInterval(cena.marcoInterval); cena.marcoInterval = null; }
     }
     function teclaReiniciar(evento) {
         if (!evento.repeat) jogarDeNovo();
