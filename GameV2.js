@@ -186,6 +186,9 @@ const itensLoja = {
     bichos: [
         { id: 'gato', nome: 'Gato', preco: 0 },
         { id: 'coelho', nome: 'Coelho', preco: 1500, arte: 'assets/bichos/coelho/' },
+        // Luna, a coelha do colega (lionhead marrom). Quando a arte chegar em assets/bichos/luna/
+        // (4 poses .webp 512x512), troque emBreve por: arte: 'assets/bichos/luna/', e ganhe o nariz em narizBichos.
+        { id: 'luna', nome: 'Luna', preco: 1500, emBreve: true },
         { id: 'hamster', nome: 'Hamster', preco: 1500, emBreve: true },
         { id: 'passaro', nome: 'Pássaro', preco: 2000, emBreve: true },
         { id: 'porquinho', nome: 'Porquinho-da-índia', preco: 2500, emBreve: true },
