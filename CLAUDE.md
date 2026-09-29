@@ -191,8 +191,17 @@ Pedido do usuario depois que o hacker burlou tudo no navegador: o unico placar q
 - **No jogo** (`online`, `mostrarRanking`, `pedirApelido`): botao redondo "Ranking" embaixo das Missoes, painel
   com os 10 melhores e o lugar do jogador, caixa de texto (HTML por cima do jogo, com o teclado do jogo desligado)
   para o apelido, e na derrota "Seu lugar no ranking: Nº". Sem internet, a partida so fica fora do ranking.
+- **Apelido:** 3 a 16 letras, so alfabeto latino (com acento), numeros, espaco, ponto, `-` e `_`, e pelo menos uma
+  letra. Nada de misturar alfabetos (o "a" cirilico imita o latino), para ninguem copiar o apelido de outro.
+- **Limpeza automatica** (`migrations/*_limpeza.sql`, pg_cron, todo dia 04:17 UTC): apaga contas anonimas sem
+  partida aceita paradas ha mais de 7 dias (a cascata leva as partidas) e as partidas 'aberta'/'recusada' antigas.
+  Assim o banco nao cresce sem limite (cada partida cria uma conta anonima) e o abuso tem menos efeito. Quem esta
+  no ranking (tem partida aceita) nunca e apagado.
 - **Testes:** `node --experimental-strip-types supabase/functions/partida/regras.test.ts`. O time pode apagar uma
   partida suspeita no painel do Supabase mudando `situacao` para `recusada`.
+- **O que sobra:** o servidor limita o placar pelo tempo real, mas um atacante paciente ainda pode mandar um placar
+  alto e plausivel sem jogar (comecar, esperar, terminar). Fechar isso de vez precisa de pontos de controle no meio
+  da partida (o jogo manda marcos, o servidor confere) — decisao do usuario ainda pendente.
 
 ## Menus
 

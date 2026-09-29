@@ -20,3 +20,12 @@ O projeto em uso e o `granulando` (ref `ljmdezzapxerfdxuoafh`, Sao Paulo), ligad
 e por segundo, altura por tronco). Teste com:
 
     node --experimental-strip-types supabase/functions/partida/regras.test.ts
+
+O apelido aceita so alfabeto latino (com acento), numeros, espaco, ponto, `-` e `_`, com pelo menos uma letra:
+misturar alfabetos (o "a" cirilico imita o latino) e recusado, para ninguem copiar o apelido de outro.
+
+## Limpeza automatica
+
+`migrations/20260929120000_limpeza.sql` liga o `pg_cron` e agenda `public.limpar_ranking()` todo dia as 04:17 UTC:
+apaga contas anonimas sem partida aceita paradas ha mais de 7 dias (a cascata leva as partidas) e as partidas
+'aberta'/'recusada' antigas. O banco nao cresce sem limite e o abuso tem menos efeito; quem esta no ranking fica.
