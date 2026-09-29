@@ -174,6 +174,13 @@ const tiposMissao = {
 if (!ativarPoderes) delete tiposMissao.poderes;
 // Endereco publico do jogo, usado ao compartilhar o resultado.
 const enderecoJogo = 'https://ritualtitan.github.io/Casspet-Game/';
+// Ranking online (Supabase). Com o endereco vazio o jogo funciona como antes, sem o botao de ranking.
+// A chave publica pode ficar no codigo: ela so deixa ler o ranking e chamar a funcao "partida", que confere
+// cada partida pelo relogio do servidor (supabase/functions/partida) antes de aceitar.
+const supabaseEndereco = 'https://ljmdezzapxerfdxuoafh.supabase.co';
+const supabaseChavePublica = 'sb_publishable_3hBQXHq-sLlmQqQsjgWo-g_WPxnnBnE';
+const rankingLigado = Boolean(supabaseEndereco && supabaseChavePublica);
+const bibliotecaSupabase = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js';
 // Os bichos sao o destaque da loja: animais que tambem usam o granulado. Sem arte ainda, ficam "em breve".
 const itensLoja = {
     bichos: [
@@ -359,6 +366,78 @@ function salvarArmazenado(chave, valor) {
 // Confere tudo ao abrir o jogo, antes do menu: o que veio de versoes antigas passa a ir assinado
 // (quem ja jogava nao perde nada) e o que foi mexido ja poe o nariz de palhaco na pintura do menu.
 for (const chave of chavesAssinadas) lerArmazenado(chave, null);
+
+// Conversa com o ranking. Login anonimo (sem e-mail), guardado no aparelho; a biblioteca do Supabase so e
+// baixada quando o ranking esta ligado. Qualquer falha de rede deixa o jogo seguir sem ranking.
+const online = {
+    cliente: null,
+    carregando: null,
+    partida: null,
+    preparar() {
+        if (!rankingLigado) return Promise.reject(new Error('ranking desligado'));
+        if (!this.carregando) {
+            this.carregando = new Promise((resolver, falhar) => {
+                const script = document.createElement('script');
+                script.src = bibliotecaSupabase;
+                script.crossOrigin = 'anonymous';
+                script.onload = resolver;
+                script.onerror = () => falhar(new Error('sem internet'));
+                document.head.appendChild(script);
+            }).then(() => {
+                this.cliente = window.supabase.createClient(supabaseEndereco, supabaseChavePublica, {
+                    auth: { storageKey: 'granulando.conta', persistSession: true, autoRefreshToken: true }
+                });
+                return this.cliente;
+            });
+            // Sem internet agora nao impede de tentar de novo depois.
+            this.carregando.catch(() => { this.carregando = null; });
+        }
+        return this.carregando;
+    },
+    async entrar() {
+        const cliente = await this.preparar();
+        const { data } = await cliente.auth.getSession();
+        if (data.session) return data.session.user;
+        const { data: novo, error } = await cliente.auth.signInAnonymously();
+        if (error) throw error;
+        return novo.user;
+    },
+    async chamar(corpo) {
+        await this.entrar();
+        const { data, error } = await this.cliente.functions.invoke('partida', { body: corpo });
+        if (error) throw error;
+        return data;
+    },
+    // O relogio do servidor comeca aqui; o do jogo so conta depois, entao a folga fica a favor do jogador.
+    comecar() {
+        this.partida = rankingLigado
+            ? this.chamar({ acao: 'comecar' }).then((resposta) => resposta && resposta.id).catch(() => null)
+            : null;
+    },
+    async terminar(placar) {
+        if (!this.partida) return { situacao: 'desligado' };
+        const id = await this.partida;
+        this.partida = null;
+        if (!id) return { situacao: 'offline' };
+        try {
+            return await this.chamar({ acao: 'terminar', id, ...placar });
+        } catch (erro) {
+            return { situacao: 'offline' };
+        }
+    },
+    async ranking() {
+        const eu = await this.entrar();
+        const colunas = 'posicao, apelido, troncos, granulados, jogador';
+        const { data: lista, error } = await this.cliente.from('ranking').select(colunas).order('posicao').limit(10);
+        if (error) throw error;
+        const { data: meu } = await this.cliente.from('ranking').select(colunas).eq('jogador', eu.id).maybeSingle();
+        const { data: jogador } = await this.cliente.from('jogadores').select('apelido').eq('id', eu.id).maybeSingle();
+        return { lista: lista || [], eu: eu.id, meu, apelido: jogador ? jogador.apelido : null };
+    },
+    trocarApelido(apelido) {
+        return this.chamar({ acao: 'apelido', apelido });
+    }
+};
 
 function diaDeHoje() {
     const hoje = new Date();
@@ -1186,6 +1265,31 @@ function create(data = {}) {
         });
     });
     itensInicio.push(botaoMissoes);
+    // Ranking online: botao redondo embaixo das missoes (so quando o Supabase esta configurado).
+    if (rankingLigado) {
+        const iconeRanking = this.add.graphics();
+        desenharIconeRanking(iconeRanking);
+        const botaoRanking = this.add.container(322, 126, [
+            this.add.graphics().fillStyle(0x1a0e08, 0.35).fillCircle(0, 3, 24),
+            this.add.image(0, 0, texturaMadeira(this, 52, 52, { raio: 24 })).setScale(1 / escalaMadeira),
+            iconeRanking,
+            this.add.text(0, 36, 'Ranking', {
+                resolution: 4, fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold', color: '#fff4d6',
+                stroke: '#2a1410', strokeThickness: 4
+            }).setOrigin(0.5)
+        ]).setSize(56, 56).setInteractive({ useHandCursor: true });
+        botaoRanking.on('pointerdown', () => {
+            if (this.avisoInicio) return;
+            som.iniciar();
+            som.clique();
+            botoesMenu.forEach((botao) => botao.disableInteractive());
+            this.avisoInicio = mostrarRanking(this, () => {
+                this.avisoInicio = null;
+                botoesMenu.forEach((botao) => botao.setInteractive({ useHandCursor: true }));
+            });
+        });
+        itensInicio.push(botaoRanking);
+    }
     // Instalar como app: no Android usa o convite do navegador; no iPhone explica o caminho.
     // Some quando o jogo ja esta aberto como app.
     const comoApp = window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches ||
@@ -1297,6 +1401,7 @@ function create(data = {}) {
 
     const iniciarPartida = () => {
         registrarMissao(this, 'partidas', 1);
+        online.comecar();
         criarHud(this);
         musica.definirVelocidade(1);
         musica.tocar();
@@ -2041,6 +2146,17 @@ function desenharIconeInstalar(g) {
     g.fillStyle(0x4d2710, 1).fillRect(-2, 9, 4, 1.5);
     g.lineStyle(3.2, 0x3f8a4c, 1).lineBetween(0, -8, 0, 4);
     g.fillStyle(0x3f8a4c, 1).fillTriangle(-5.5, 1, 5.5, 1, 0, 7.5);
+}
+
+// Trofeu dourado, para o botao do ranking.
+function desenharIconeRanking(g) {
+    g.lineStyle(2.5, 0x4d2710, 1).fillStyle(0xffd24a, 1);
+    g.fillRoundedRect(-8, -12, 16, 14, { tl: 2, tr: 2, bl: 8, br: 8 }).strokeRoundedRect(-8, -12, 16, 14, { tl: 2, tr: 2, bl: 8, br: 8 });
+    g.beginPath().arc(-8, -6, 5, Math.PI * 0.5, Math.PI * 1.5, false).strokePath();
+    g.beginPath().arc(8, -6, 5, Math.PI * 1.5, Math.PI * 0.5, false).strokePath();
+    g.fillRect(-2, 2, 4, 5).strokeRect(-2, 2, 4, 5);
+    g.fillRoundedRect(-8, 7, 16, 5, 2).strokeRoundedRect(-8, 7, 16, 5, 2);
+    g.fillStyle(0xfff4d6, 1).fillRect(-4, -9, 2.5, 7);
 }
 
 // Pergaminho com lista e um visto, para o botao das missoes.
@@ -2905,6 +3021,24 @@ function mostrarMorte(cena) {
         gerarCartaoResultado(cena).then((arquivo) => { cartao = arquivo; }).catch(() => {});
     });
     const avisoCompartilhar = cena.add.text(0, 186, '', estilo(12, '#ffd24a', { fontStyle: 'bold' })).setOrigin(0.5);
+    // A partida vai para o servidor, que confere pelo tempo antes de aceitar no ranking. Trapaca pega no
+    // jogo nem e enviada.
+    if (trapaceou) {
+        online.partida = null;
+    } else if (rankingLigado) {
+        avisoCompartilhar.setText('Enviando para o ranking...').setColor('#f4ddc9');
+        online.terminar({
+            troncos: cena.contador, granulados: cena.totalMoedas, altura: Math.round(Math.max(0, cena.alturaMax))
+        }).then((resposta) => {
+            if (!avisoCompartilhar.active) return;
+            const textos = {
+                aceita: resposta.posicao ? `Seu lugar no ranking: ${resposta.posicao}º` : 'Partida no ranking!',
+                recusada: 'O ranking não aceitou esta partida.',
+                offline: 'Sem internet: esta ficou fora do ranking.'
+            };
+            avisoCompartilhar.setText(textos[resposta.situacao] || '').setColor('#ffd24a');
+        });
+    }
     const botaoCompartilhar = criarBotaoMadeira(cena, 0, 100, 240, 42, 'COMPARTILHAR', () => {
         if (reiniciando || lojaAberta) return;
         compartilharResultado(cena, cartao).then((resultado) => {
@@ -4079,6 +4213,113 @@ function criarBotaoMadeira(cena, x, y, largura, altura, texto, acao, { tamanho =
     });
     botao.rotulo = rotulo;
     return botao;
+}
+
+// Tela do ranking: os 10 melhores (a melhor partida aceita de cada um), o lugar do jogador e o apelido.
+function mostrarRanking(cena, aoFechar, profundidade = 30) {
+    const altura = config.height;
+    const meio = altura / 2;
+    const tela = cena.add.container(0, 0).setScrollFactor(0).setDepth(profundidade);
+    const estilo = (tamanho, cor, extra = {}) => ({
+        resolution: 4, fontFamily: 'Arial', fontSize: tamanho + 'px', color: cor, ...extra
+    });
+    tela.add(cena.add.rectangle(180, meio, 440, altura + 80, 0x1a0e08, 0.82).setScrollFactor(0).setInteractive());
+    tela.add(cena.add.image(180, meio, texturaMadeira(cena, 328, 470, { raio: 20 })).setScale(1 / escalaMadeira));
+    tela.add(cena.add.text(180, meio - 204, 'RANKING', {
+        resolution: 4, fontFamily: 'Arial Black, Arial, sans-serif', fontSize: '22px', fontStyle: 'bold',
+        color: '#4d2710', stroke: '#f6c98f', strokeThickness: 3
+    }).setOrigin(0.5));
+    const aviso = cena.add.text(180, meio - 40, 'Carregando...', estilo(14, '#4d2710', { fontStyle: 'bold', align: 'center', wordWrap: { width: 280 } })).setOrigin(0.5);
+    tela.add(aviso);
+    const linhas = cena.add.container(0, 0);
+    tela.add(linhas);
+    const rodape = cena.add.text(180, meio + 172, '', estilo(13, '#4d2710', { fontStyle: 'bold', align: 'center' })).setOrigin(0.5);
+    tela.add(rodape);
+    const preencher = (dados) => {
+        linhas.removeAll(true);
+        aviso.setText(dados.lista.length ? '' : 'Ninguém no ranking ainda. Seja o primeiro!');
+        dados.lista.forEach((item, i) => {
+            const y = meio - 166 + i * 31;
+            const souEu = item.jogador === dados.eu;
+            const linha = cena.add.container(180, y);
+            linha.add(cena.add.graphics().fillStyle(souEu ? 0xffd24a : 0xfff4d6, 1).fillRoundedRect(-146, -13, 292, 27, 8));
+            const medalha = ['#d9a400', '#8f9aa6', '#b56a2e'][i];
+            linha.add(cena.add.text(-132, 0, item.posicao + 'º', estilo(14, medalha || '#7a4a2a', { fontStyle: 'bold' })).setOrigin(0, 0.5));
+            linha.add(cena.add.text(-96, 0, item.apelido, estilo(14, '#4d2710', { fontStyle: 'bold' })).setOrigin(0, 0.5));
+            linha.add(cena.add.image(66, 0, 'ic_tronco').setScale(0.36));
+            linha.add(cena.add.text(78, 0, String(item.troncos), estilo(14, '#4d2710', { fontStyle: 'bold' })).setOrigin(0, 0.5));
+            linha.setAlpha(0);
+            cena.tweens.add({ targets: linha, alpha: 1, delay: i * 40, duration: 200 });
+            linhas.add(linha);
+        });
+        const nome = dados.apelido || 'sem apelido';
+        rodape.setText(dados.meu ? `Você: ${nome} · ${dados.meu.posicao}º com ${dados.meu.troncos} troncos`
+            : `Você: ${nome} · jogue para entrar no ranking`);
+    };
+    const carregar = () => online.ranking().then((dados) => {
+        if (tela.active) preencher(dados);
+    }).catch(() => {
+        if (tela.active) aviso.setText('Sem internet agora. Tente de novo mais tarde.');
+    });
+    carregar();
+    tela.add(criarBotaoMadeira(cena, 100, meio + 216, 150, 44, 'MEU APELIDO', () => {
+        pedirApelido(cena, (texto) => online.trocarApelido(texto)).then((mudou) => {
+            if (mudou && tela.active) carregar();
+        });
+    }, { tamanho: 14, cor: 0xb8e0a8 }));
+    tela.add(criarBotaoMadeira(cena, 262, meio + 216, 130, 44, 'FECHAR', () => {
+        tela.destroy();
+        aoFechar();
+    }, { tamanho: 15 }));
+    tela.setAlpha(0);
+    cena.tweens.add({ targets: tela, alpha: 1, duration: 160 });
+    return tela;
+}
+
+// Caixa de texto por cima do jogo para digitar o apelido. O teclado do jogo fica desligado enquanto ela esta
+// aberta (senao o espaco e as setas nao chegam ao campo). Resolve com true se o apelido mudou.
+function pedirApelido(cena, salvar) {
+    return new Promise((resolver) => {
+        const teclado = cena.input.keyboard;
+        teclado.enabled = false;
+        teclado.disableGlobalCapture();
+        const fundo = document.createElement('div');
+        fundo.style.cssText = 'position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;' +
+            'background:rgba(26,14,8,.72);font-family:Arial,sans-serif';
+        fundo.innerHTML = '<form style="background:#3b2418;border:2px solid #ffe1a6;border-radius:14px;padding:18px;' +
+            'width:min(300px,86vw);color:#ffe1a6;text-align:center">' +
+            '<b style="font-size:18px">Seu apelido no ranking</b>' +
+            '<p style="margin:8px 0 12px;font-size:12px;color:#f4ddc9">De 3 a 16 letras. Todo mundo vai ver.</p>' +
+            '<input maxlength="16" autocomplete="off" style="width:100%;box-sizing:border-box;font:bold 18px Arial;' +
+            'padding:10px;border-radius:9px;border:2px solid #4d2710;background:#fff4d6;color:#4d2710">' +
+            '<p data-erro style="min-height:15px;margin:7px 0;font-size:12px;color:#ff8a6a"></p>' +
+            '<div style="display:flex;gap:10px;justify-content:center">' +
+            '<button type="button" data-voltar style="font:bold 15px Arial;color:#4d2710;background:#d9c2a8;' +
+            'border:2px solid #4d2710;border-radius:10px;padding:10px 16px">VOLTAR</button>' +
+            '<button type="submit" style="font:bold 15px Arial;color:#4d2710;background:#f4c58a;' +
+            'border:2px solid #4d2710;border-radius:10px;padding:10px 16px">SALVAR</button></div></form>';
+        document.body.appendChild(fundo);
+        const campo = fundo.querySelector('input');
+        const erro = fundo.querySelector('[data-erro]');
+        campo.focus();
+        const fechar = (mudou) => {
+            fundo.remove();
+            teclado.enabled = true;
+            teclado.enableGlobalCapture();
+            resolver(mudou);
+        };
+        fundo.querySelector('[data-voltar]').addEventListener('click', () => fechar(false));
+        fundo.querySelector('form').addEventListener('submit', (evento) => {
+            evento.preventDefault();
+            erro.textContent = 'Salvando...';
+            salvar(campo.value).then((resposta) => {
+                if (resposta && resposta.ok) fechar(true);
+                else erro.textContent = (resposta && resposta.motivo) || 'Não deu para salvar.';
+            }).catch(() => {
+                erro.textContent = 'Sem internet agora.';
+            });
+        });
+    });
 }
 
 // Tela das missoes do dia: cada uma com a barra de progresso e o premio.
