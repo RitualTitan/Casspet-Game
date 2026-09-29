@@ -171,6 +171,24 @@ Nada de novas travas no navegador; servidor conferindo as partidas so se um dia 
   "Tentei trapacear e o guaxinim me pegou!". Sai sozinho depois de `troncosPerdao` (50) troncos numa partida limpa
   (`devolverNariz`), o que tambem desfaz um alarme falso.
 
+## Ranking online (Supabase)
+
+Pedido do usuario depois que o hacker burlou tudo no navegador: o unico placar que vale e o que o servidor aceitou.
+- **Liga e desliga:** `supabaseEndereco` e `supabaseChavePublica` no `GameV2.js`. Vazios, o jogo fica igual, sem o
+  botao de ranking; a biblioteca do Supabase (`bibliotecaSupabase`, jsdelivr) so e baixada com eles preenchidos.
+  A chave publica pode ficar no codigo; nunca coloque a chave de servico no jogo.
+- **Servidor** (pasta `supabase/`, nao vai para o site): `migrations/*_ranking.sql` cria `jogadores`, `partidas` e a
+  vista `ranking` (melhor partida aceita de cada jogador, por troncos). O jogo nao grava nada direto (sem politicas
+  de gravacao); so le a vista e o proprio apelido. A funcao `functions/partida` (Deno) e a unica que grava:
+  `comecar` anota a hora no relogio do servidor, `terminar` confere o placar pelo tempo com as regras de
+  `regras.ts` (os mesmos limites do vigia: mude os dois juntos) e `apelido` troca o apelido (3 a 16 letras,
+  lista de palavras proibidas). Login anonimo, sem e-mail; quem joga ganha um apelido provisorio "Gato 1234".
+- **No jogo** (`online`, `mostrarRanking`, `pedirApelido`): botao redondo "Ranking" embaixo das Missoes, painel
+  com os 10 melhores e o lugar do jogador, caixa de texto (HTML por cima do jogo, com o teclado do jogo desligado)
+  para o apelido, e na derrota "Seu lugar no ranking: Nº". Sem internet, a partida so fica fora do ranking.
+- **Testes:** `node --experimental-strip-types supabase/functions/partida/regras.test.ts`. O time pode apagar uma
+  partida suspeita no painel do Supabase mudando `situacao` para `recusada`.
+
 ## Menus
 
 - Menu: as placas fazem parte da pintura, entao nada se move sobre elas; `animarMenu` passa uma faixa de
