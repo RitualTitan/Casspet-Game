@@ -1,0 +1,17 @@
+{
+  "name": "Casspet® - Granulando",
+  "short_name": "Granulando",
+  "description": "Suba a árvore pulando de tronco em tronco e recupere o pacote de granulado que o guaxinim roubou.",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#233c24",
+  "theme_color": "#233c24",
+  "icons": [
+    { "src": "assets/icone/icone-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icone/icone-512.webp", "sizes": "512x512", "type": "image/webp" },
+    { "src": "assets/icone/icone-maskable.webp", "sizes": "512x512", "type": "image/webp", "purpose": "maskable" }
+  ]
+}
