@@ -7,8 +7,12 @@ O jogo so usa o ranking quando `supabaseEndereco` e `supabaseChavePublica` estao
 1. Crie um projeto no Supabase (plano gratis; regiao Sao Paulo).
 2. Em Authentication > Sign In / Providers, ligue **Anonymous sign-ins**.
 3. Rode `migrations/20260929000000_ranking.sql` no SQL Editor (ou pela API de gerenciamento).
-4. Publique a funcao `functions/partida` (index.ts e regras.ts) com o nome `partida`.
-5. Preencha no `GameV2.js` o endereco do projeto (`https://<ref>.supabase.co`) e a chave publica (anon/publishable).
+4. Publique a funcao `functions/partida` (index.ts e regras.ts) com o nome `partida` e sem verificacao de JWT
+   (`supabase functions deploy partida --no-verify-jwt`): a propria funcao confere o login com `auth.getUser`, e a
+   chave publicavel nao e um JWT.
+5. Preencha no `GameV2.js` o endereco do projeto (`https://<ref>.supabase.co`) e a chave publica (publishable).
+
+O projeto em uso e o `granulando` (ref `ljmdezzapxerfdxuoafh`, Sao Paulo), ligado assim em 29/09/2026.
 
 ## Regras
 

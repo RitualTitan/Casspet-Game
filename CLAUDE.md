@@ -177,6 +177,11 @@ Pedido do usuario depois que o hacker burlou tudo no navegador: o unico placar q
 - **Liga e desliga:** `supabaseEndereco` e `supabaseChavePublica` no `GameV2.js`. Vazios, o jogo fica igual, sem o
   botao de ranking; a biblioteca do Supabase (`bibliotecaSupabase`, jsdelivr) so e baixada com eles preenchidos.
   A chave publica pode ficar no codigo; nunca coloque a chave de servico no jogo.
+- **Projeto no ar:** `granulando` (ref `ljmdezzapxerfdxuoafh`, Sao Paulo, plano gratis), com login anonimo ligado,
+  a migracao aplicada e a funcao `partida` publicada **sem verificacao de JWT** (`--no-verify-jwt`): ela confere o
+  login sozinha (`auth.getUser`), a chave do jogo e a publicavel (`sb_publishable_...`, nao e JWT) e os logins sao
+  assinados em ES256. No plano gratis o Supabase pausa o projeto depois de 7 dias sem uso; se o ranking parar de
+  responder, reative o projeto no painel.
 - **Servidor** (pasta `supabase/`, nao vai para o site): `migrations/*_ranking.sql` cria `jogadores`, `partidas` e a
   vista `ranking` (melhor partida aceita de cada jogador, por troncos). O jogo nao grava nada direto (sem politicas
   de gravacao); so le a vista e o proprio apelido. A funcao `functions/partida` (Deno) e a unica que grava:

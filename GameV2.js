@@ -177,8 +177,8 @@ const enderecoJogo = 'https://ritualtitan.github.io/Casspet-Game/';
 // Ranking online (Supabase). Com o endereco vazio o jogo funciona como antes, sem o botao de ranking.
 // A chave publica pode ficar no codigo: ela so deixa ler o ranking e chamar a funcao "partida", que confere
 // cada partida pelo relogio do servidor (supabase/functions/partida) antes de aceitar.
-const supabaseEndereco = '';
-const supabaseChavePublica = '';
+const supabaseEndereco = 'https://ljmdezzapxerfdxuoafh.supabase.co';
+const supabaseChavePublica = 'sb_publishable_3hBQXHq-sLlmQqQsjgWo-g_WPxnnBnE';
 const rankingLigado = Boolean(supabaseEndereco && supabaseChavePublica);
 const bibliotecaSupabase = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js';
 // Os bichos sao o destaque da loja: animais que tambem usam o granulado. Sem arte ainda, ficam "em breve".
