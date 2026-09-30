@@ -186,9 +186,8 @@ const itensLoja = {
     bichos: [
         { id: 'gato', nome: 'Gato', preco: 0 },
         { id: 'coelho', nome: 'Coelho', preco: 1500, arte: 'assets/bichos/coelho/' },
-        // Luna, a coelha do colega (lionhead marrom). Quando a arte chegar em assets/bichos/luna/
-        // (4 poses .webp 512x512), troque emBreve por: arte: 'assets/bichos/luna/', e ganhe o nariz em narizBichos.
-        { id: 'luna', nome: 'Luna', preco: 1500, emBreve: true },
+        // Luna, a coelha do colega (lionhead marrom): arte alinhada pela do coelho (pes na mesma altura).
+        { id: 'luna', nome: 'Luna', preco: 1500, arte: 'assets/bichos/luna/' },
         { id: 'hamster', nome: 'Hamster', preco: 1500, emBreve: true },
         { id: 'passaro', nome: 'Pássaro', preco: 2000, emBreve: true },
         { id: 'porquinho', nome: 'Porquinho-da-índia', preco: 2500, emBreve: true },
@@ -230,7 +229,12 @@ const narizBichos = {
     coelho_mascote_1: { ponto: [1050, 912], largura: 760 },
     coelho_quasePulando: { ponto: [1551, 1121], largura: 760 },
     coelho_pulando: { ponto: [1280, 778], largura: 720 },
-    coelho_caindo: { ponto: [1085, 882], largura: 760 }
+    coelho_caindo: { ponto: [1085, 882], largura: 760 },
+    // Luna: focinho medido na arte dela (detectado pelo rosa do nariz) e conferido desenhando o nariz.
+    luna_mascote_1: { ponto: [1054, 966], largura: 720 },
+    luna_quasePulando: { ponto: [1682, 1232], largura: 720 },
+    luna_pulando: { ponto: [1624, 986], largura: 720 },
+    luna_caindo: { ponto: [1070, 1125], largura: 720 }
 };
 // Ponto de apoio, tamanho (em larguras de cabeca) e origem da textura de cada acessorio.
 const encaixeAcessorio = {
