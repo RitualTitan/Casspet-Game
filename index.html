@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- O endereco novo precisa saber que o jogador veio daqui (ver receberDadosDoEnderecoAntigo no GameV2.js). -->
+  <meta name="referrer" content="origin">
+  <meta name="robots" content="noindex">
+  <link rel="canonical" href="https://granulando.netlify.app/">
+  <title>Granulando mudou de endereço</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #233c24; color: #ffe1a6; font-family: Arial, sans-serif; text-align: center; padding: 16px;
+      box-sizing: border-box;
+    }
+    main { max-width: 320px; }
+    h1 { font-size: 24px; margin: 0 0 12px; }
+    p { font-size: 16px; line-height: 1.4; margin: 0 0 20px; color: #f4ddc9; }
+    a {
+      display: inline-block; padding: 14px 28px; border-radius: 14px; background: #c98a4b; color: #3b2418;
+      font-weight: bold; font-size: 18px; text-decoration: none; border: 3px solid #4d2710;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>O Granulando mudou de endereço!</h1>
+    <p>Levando você e o seu progresso para o jogo novo...</p>
+    <a id="ir" href="https://granulando.netlify.app/">Abrir o jogo</a>
+  </main>
+  <script>
+    // Os dados salvos ficam presos ao endereco do site. Antes de ir para o endereco novo, junta tudo que o jogo
+    // salvou aqui (chaves "granulando.": recorde, cofrinho, missoes, opcoes e a conta do ranking) e leva junto,
+    // no #transferir= (o que vem depois do # nao vai para nenhum servidor). O jogo novo guarda e apaga do endereco.
+    (function () {
+      var destino = 'https://granulando.netlify.app/';
+      var dados = {};
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var chave = localStorage.key(i);
+          if (chave && chave.indexOf('granulando.') === 0) dados[chave] = localStorage.getItem(chave);
+        }
+      } catch (erro) {}
+      if (Object.keys(dados).length) destino += '#transferir=' + encodeURIComponent(JSON.stringify(dados));
+      document.getElementById('ir').href = destino;
+      // Desliga o jogo antigo guardado para abrir sem internet (service worker e caches), para ele nao voltar.
+      var limpar = Promise.resolve();
+      try {
+        if ('serviceWorker' in navigator) {
+          limpar = navigator.serviceWorker.getRegistrations().then(function (registros) {
+            return Promise.all(registros.map(function (registro) { return registro.unregister(); }));
+          });
+        }
+        if (window.caches) {
+          limpar = limpar.then(function () {
+            return caches.keys().then(function (nomes) {
+              return Promise.all(nomes.map(function (nome) { return caches.delete(nome); }));
+            });
+          });
+        }
+      } catch (erro) {}
+      var foi = false;
+      var ir = function () {
+        if (foi) return;
+        foi = true;
+        location.replace(destino);
+      };
+      limpar.then(ir, ir);
+      setTimeout(ir, 1500);
+    })();
+  </script>
+</body>
+</html>
